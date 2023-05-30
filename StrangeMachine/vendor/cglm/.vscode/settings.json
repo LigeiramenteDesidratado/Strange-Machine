@@ -1,0 +1,5 @@
+{
+  "C_Cpp.default.configurationProvider": "vector-of-bool.cmake-tools",
+  "restructuredtext.confPath": "${workspaceFolder}/docs/source",
+  "workbench.colorTheme": "Visual Studio Dark - C++"
+}

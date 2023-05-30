@@ -1,0 +1,14 @@
+*.orig
+*.o
+main
+infer-out
+record.txt
+report.txt
+.cache
+.deps
+*.diff
+.ccls-cache/
+vgcore.*
+*.trace
+compile_commands.json
+build/

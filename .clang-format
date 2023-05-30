@@ -1,0 +1,33 @@
+ColumnLimit: 120
+AlignConsecutiveMacros: AcrossComments
+AlignEscapedNewlines: Left
+AllowShortBlocksOnASingleLine: Always
+AllowShortFunctionsOnASingleLine: Empty
+AlignTrailingComments: true
+# IndentPPDirectives: BeforeHash
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+IndentCaseLabels: false
+SeparateDefinitionBlocks: Always
+SpaceBeforeParens: ControlStatements
+AlignArrayOfStructures: Left
+AlignAfterOpenBracket: DontAlign
+BreakBeforeBraces: Custom
+AlwaysBreakAfterReturnType: TopLevelDefinitions
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+BraceWrapping:
+  AfterEnum: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterCaseLabel: true
+  BeforeElse: true
+  AfterControlStatement: true
+  AfterFunction: true
+  AfterObjCDeclaration: true
+  SplitEmptyFunction: true
+IndentCaseBlocks: true
+IndentPPDirectives: AfterHash
+IndentWidth: 8
+UseTab: Always
