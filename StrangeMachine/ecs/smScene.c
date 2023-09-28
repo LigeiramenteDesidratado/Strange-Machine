@@ -10,6 +10,7 @@ scene_make(struct arena *arena, struct scene *scene)
 {
 	handle_pool_make(arena, &scene->indirect_handle_pool, 8);
 	array_set_cap(arena, scene->indirect_access, scene->indirect_handle_pool.cap);
+	scene->arena = arena;
 	scene->component_handle_pool = 0;
 	scene->sys_info = 0;
 	scene->main_camera = (entity_t){INVALID_HANDLE};
@@ -70,12 +71,12 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 	struct child_parent_hierarchy
 	{
 		component_t archetype;
-		struct scene_node *child_ptr, *parent_ptr;
-		entity_t child_ett, parent_ett;
+		struct scene_node *ptr, *parent_ptr;
+		entity_t ett, parent_ett;
 	};
 
-	struct child_parent_hierarchy *child_parent_hierarchy_nodes = 0;
-	array_set_len(arena, child_parent_hierarchy_nodes, array_len(scene_res->nodes));
+	struct child_parent_hierarchy *nodes_hierarchy = 0;
+	array_set_len(arena, nodes_hierarchy, array_len(scene_res->nodes));
 	for (u32 i = 0; i < array_len(scene_res->nodes); ++i)
 	{
 		struct scene_node *node = &scene_res->nodes[i];
@@ -90,53 +91,48 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		entity_t ett = scene_entity_new(arena, scene, archetype);
 		if (archetype & ARMATURE) { result = ett; }
 
-		child_parent_hierarchy_nodes[i].archetype = archetype;
+		nodes_hierarchy[i].archetype = archetype;
 
-		child_parent_hierarchy_nodes[i].child_ptr = node;
-		child_parent_hierarchy_nodes[i].parent_ptr =
-		    (node->parent_index > -1) ? &scene_res->nodes[node->parent_index] : 0;
+		nodes_hierarchy[i].ptr = node;
+		nodes_hierarchy[i].parent_ptr = (node->parent_index > -1) ? &scene_res->nodes[node->parent_index] : 0;
 
-		child_parent_hierarchy_nodes[i].child_ett = ett;
-		child_parent_hierarchy_nodes[i].parent_ett = (entity_t){INVALID_HANDLE};
+		nodes_hierarchy[i].ett = ett;
+		nodes_hierarchy[i].parent_ett = (entity_t){INVALID_HANDLE};
 		// ett_h[i].transform = scene_component_get_data(scene, ett, TRANSFORM);
 	}
 
-	for (u32 i = 0; i < array_len(child_parent_hierarchy_nodes); ++i)
+	for (u32 i = 0; i < array_len(nodes_hierarchy); ++i)
 	{
-		struct child_parent_hierarchy *child = &child_parent_hierarchy_nodes[i];
-		if (child->parent_ptr == 0) { continue; }
+		struct child_parent_hierarchy *self = &nodes_hierarchy[i];
+		if (self->parent_ptr == 0) { continue; }
 
-		for (u32 j = 0; j < array_len(child_parent_hierarchy_nodes); ++j)
+		for (u32 j = 0; j < array_len(nodes_hierarchy); ++j)
 		{
 			if (i == j) { continue; }
-			struct child_parent_hierarchy *parent = &child_parent_hierarchy_nodes[j];
+			struct child_parent_hierarchy *parent = &nodes_hierarchy[j];
 
-			if (child->parent_ptr == parent->child_ptr)
+			if (self->parent_ptr == parent->ptr)
 			{
-				child->parent_ett = parent->child_ett;
+				self->parent_ett = parent->ett;
+
+				scene_entity_set_parent(scene, self->ett, parent->ett);
 				break;
 			}
 		}
-		assert(child->child_ett.handle != child->parent_ett.handle);
+		assert(self->ett.handle != self->parent_ett.handle);
 	}
 
-	for (u32 i = 0; i < array_len(child_parent_hierarchy_nodes); ++i)
+	for (u32 i = 0; i < array_len(nodes_hierarchy); ++i)
 	{
-		struct child_parent_hierarchy *child = &child_parent_hierarchy_nodes[i];
+		struct child_parent_hierarchy *self = &nodes_hierarchy[i];
 
-		transform_component *transform = scene_component_get_data(scene, child->child_ett, TRANSFORM);
+		transform_component *transform = scene_component_get_data(scene, self->ett, TRANSFORM);
 		log_trace(str8_from("transform ptr: 0x{u6x}"), transform);
 		{
 			transform->matrix_local = m4_identity();
 
 			transform->matrix = m4_identity();
 			transform->last_matrix = m4_identity();
-
-			transform->parent_transform = 0;
-			transform->chidren_transform = 0;
-
-			transform->archetype = child->archetype;
-			transform->self = child->child_ett;
 
 			glm_vec3_copy(scene_res->nodes[i].position.data, transform->transform_local.translation.data);
 			glm_vec4_copy(scene_res->nodes[i].rotation.data, transform->transform_local.rotation.data);
@@ -148,14 +144,15 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 
 			glm_vec3_copy(scale.data, transform->transform_local.scale.data);
 
-			transform_update_tree(transform);
-
-			transform->flags = TRANSFORM_FLAG_DIRTY;
+			u32 self_index = handle_index(self->ett.handle);
+			struct indirect_access *self_node = &scene->indirect_access[self_index];
+			self_node->flags |= HIERARCHY_FLAG_DIRTY;
+			// transform->flags = TRANSFORM_FLAG_DIRTY;
 		}
 
-		if ((child->archetype & (MATERIAL | MESH)) != (MATERIAL | MESH)) { continue; }
+		if ((self->archetype & (MATERIAL | MESH)) != (MATERIAL | MESH)) { continue; }
 
-		material_component *material = scene_component_get_data(scene, child->child_ett, MATERIAL);
+		material_component *material = scene_component_get_data(scene, self->ett, MATERIAL);
 		{
 			struct resource *material_res = 0;
 
@@ -174,34 +171,33 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 			material->material_ref = material->resource_ref->material_data;
 		}
 
-		mesh_component *mesh = scene_component_get_data(scene, child->child_ett, MESH);
+		mesh_component *mesh = scene_component_get_data(scene, self->ett, MESH);
 		{
 			assert(scene_res->nodes[i].mesh.size > 0);
 			struct resource *mesh_res = resource_get_by_name(scene_res->nodes[i].mesh);
 			mesh->resource_ref = resource_make_reference(mesh_res);
 			mesh->mesh_ref = mesh->resource_ref->mesh_data;
 		}
-		if ((child->archetype & STATIC_BODY))
+		if ((self->archetype & STATIC_BODY))
 		{
-			static_body_component *static_body =
-			    scene_component_get_data(scene, child->child_ett, STATIC_BODY);
+			static_body_component *static_body = scene_component_get_data(scene, self->ett, STATIC_BODY);
 			static_body->enabled = true;
 		}
 
-		if ((child->archetype & (ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER)) !=
+		if ((self->archetype & (ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER)) !=
 		    (ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER))
 		{
 			continue;
 		}
 
-		armature_component *armature = scene_component_get_data(scene, child->child_ett, ARMATURE);
+		armature_component *armature = scene_component_get_data(scene, self->ett, ARMATURE);
 		{
 			struct resource *armature_res = resource_get_by_name(scene_res->nodes[i].armature);
 			armature->resource_ref = resource_make_reference(armature_res);
 			armature->armature_ref = armature->resource_ref->armature_data;
 		}
 
-		pose_component *current = scene_component_get_data(scene, child->child_ett, POSE);
+		pose_component *current = scene_component_get_data(scene, self->ett, POSE);
 		{
 			current->parents = 0;
 			current->joints = 0;
@@ -209,7 +205,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 			pose_copy(arena, current, rest);
 		}
 
-		clip_component *clip = scene_component_get_data(scene, child->child_ett, CLIP);
+		clip_component *clip = scene_component_get_data(scene, self->ett, CLIP);
 		{
 			clip->next_clip_ref = 0;
 			clip->current_clip_ref = 0;
@@ -217,31 +213,23 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		}
 
 		cross_fade_controller_component *cfc =
-		    scene_component_get_data(scene, child->child_ett, CROSS_FADE_CONTROLLER);
+		    scene_component_get_data(scene, self->ett, CROSS_FADE_CONTROLLER);
 		{
 			cfc->targets = 0;
 		}
 	}
 
-	for (u32 i = 0; i < array_len(child_parent_hierarchy_nodes); ++i)
+	for (u32 i = 0; i < array_len(nodes_hierarchy); ++i)
 	{
-		struct child_parent_hierarchy *child = &child_parent_hierarchy_nodes[i];
-		if (child->parent_ett.handle)
-		{
-			transform_component *self = scene_component_get_data(scene, child->child_ett, TRANSFORM);
-			{
-				transform_component *parent =
-				    scene_component_get_data(scene, child->parent_ett, TRANSFORM);
-				transform_set_parent(arena, self, parent);
+		struct child_parent_hierarchy *self = &nodes_hierarchy[i];
+		scene_entity_update_hierarchy(scene, self->ett);
 
-				transform_update_tree(self);
-
-				self->flags = TRANSFORM_FLAG_DIRTY;
-			}
-		}
+		u32 self_index = handle_index(self->ett.handle);
+		struct indirect_access *self_node = &scene->indirect_access[self_index];
+		self_node->flags &= ~(u32)HIERARCHY_FLAG_DIRTY;
 	}
 
-	array_release(arena, child_parent_hierarchy_nodes);
+	array_release(arena, nodes_hierarchy);
 
 	return result;
 }
@@ -287,14 +275,19 @@ scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype
 	{
 		if (scene->component_handle_pool[i].archetype == archetype)
 		{
-			handle_t handle = component_pool_handle_new(arena, &scene->component_handle_pool[i]);
+			handle_t component_handle = component_pool_handle_new(arena, &scene->component_handle_pool[i]);
 			// result.handle = handle_new(arena, &scene->indirect_handle_pool);
 			result.handle = sm__scene_indirect_access_new_handle(arena, scene);
 
 			u32 index = handle_index(result.handle);
-			scene->indirect_access[index].handle = handle;
+			scene->indirect_access[index].handle = component_handle;
 			scene->indirect_access[index].component_pool_index = i;
 			scene->indirect_access[index].archetype = archetype;
+
+			scene->indirect_access[index].self = result;
+			scene->indirect_access[index].parent.handle = INVALID_HANDLE;
+			scene->indirect_access[index].children = 0;
+			scene->indirect_access[index].flags = 0;
 
 			return (result);
 		}
@@ -315,6 +308,11 @@ scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype
 	scene->indirect_access[index].handle = component_handle;
 	scene->indirect_access[index].component_pool_index = component_index;
 	scene->indirect_access[index].archetype = archetype;
+
+	scene->indirect_access[index].self = result;
+	scene->indirect_access[index].parent.handle = INVALID_HANDLE;
+	scene->indirect_access[index].children = 0;
+	scene->indirect_access[index].flags = 0;
 
 	return (result);
 }
@@ -474,6 +472,287 @@ scene_component_get_data(struct scene *scene, entity_t entity, component_t compo
 	result = component_pool_get_data(comp_pool, ett, component);
 
 	return (result);
+}
+
+void
+scene_entity_update_hierarchy(struct scene *scene, entity_t self)
+{
+	assert(scene_entity_is_valid(scene, self));
+	assert(scene_entity_has_components(scene, self, TRANSFORM));
+	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
+
+	// Compute local transform
+	self_transform->matrix_local = trs_to_m4(self_transform->transform_local);
+
+	u32 self_index = handle_index(self.handle);
+	struct indirect_access *self_node = &scene->indirect_access[self_index];
+
+	// Compute world transform
+	if (self_node->parent.handle)
+	{
+		assert(scene_entity_is_valid(scene, self_node->parent));
+		transform_component *parent_transform = scene_component_get_data(scene, self_node->parent, TRANSFORM);
+
+		glm_mat4_mul(
+		    parent_transform->matrix.data, self_transform->matrix_local.data, self_transform->matrix.data);
+	}
+	else { glm_mat4_copy(self_transform->matrix_local.data, self_transform->matrix.data); }
+
+	for (u32 i = 0; i < array_len(self_node->children); ++i)
+	{
+		scene_entity_update_hierarchy(scene, self_node->children[i]);
+	}
+}
+
+b8
+scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entity)
+{
+	u32 self_index = handle_index(self.handle);
+	struct indirect_access *self_node = &scene->indirect_access[self_index];
+
+	if (self_node->parent.handle != INVALID_HANDLE) { return (false); }
+	if (self_node->parent.handle == entity.handle) { return (true); }
+
+	u32 entity_index = handle_index(entity.handle);
+	struct indirect_access *entity_node = &scene->indirect_access[entity_index];
+
+	for (u32 i = 0; i < array_len(entity_node->children); ++i)
+	{
+		if (scene_entity_is_descendant_of(scene, self, entity_node->children[i])) { return (true); }
+	}
+
+	return (false);
+}
+
+void
+scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
+{
+	assert(scene_entity_is_valid(scene, self));
+	assert(scene_entity_is_valid(scene, new_parent));
+
+	assert(scene_entity_has_components(scene, self, TRANSFORM));
+	assert(scene_entity_has_components(scene, new_parent, TRANSFORM));
+
+	if (self.handle == new_parent.handle)
+	{
+		log_warn(str8_from("adding self as parent"));
+		return;
+	}
+
+	u32 self_index = handle_index(self.handle);
+	assert(self_index < scene->indirect_handle_pool.cap);
+	assert(scene->indirect_access[self_index].archetype & TRANSFORM);
+	struct indirect_access *self_node = &scene->indirect_access[self_index];
+
+	if (self_node->parent.handle == new_parent.handle) { return; }
+
+	if (new_parent.handle && scene_entity_is_descendant_of(scene, new_parent, self))
+	{
+		for (u32 i = 0; i < array_len(self_node->children); ++i)
+		{
+			// self->chidren_transform[i]->parent_transform = self->parent_transform;
+			entity_t motherless = self_node->children[i];
+
+			u32 motherless_index = handle_index(motherless.handle);
+			assert(motherless_index < scene->indirect_handle_pool.cap);
+			assert(scene->indirect_access[motherless_index].archetype & TRANSFORM);
+			struct indirect_access *motherless_node = &scene->indirect_access[motherless_index];
+			motherless_node->parent = self_node->parent;
+		}
+
+		array_set_len(scene->arena, self_node->children, 0);
+	}
+
+	if (self_node->parent.handle)
+	{
+		entity_t parent_entity = self_node->parent;
+
+		u32 parent_index = handle_index(parent_entity.handle);
+		assert(parent_index < scene->indirect_handle_pool.cap);
+		assert(scene->indirect_access[parent_index].archetype & TRANSFORM);
+		struct indirect_access *parent_node = &scene->indirect_access[parent_index];
+
+		i32 new_self_index = -1;
+		for (u32 i = 0; i < array_len(parent_node->children); ++i)
+		{
+			if (self_node->self.handle == parent_node->children[i].handle)
+			{
+				new_self_index = i;
+				break;
+			}
+		}
+		assert(new_self_index != -1);
+
+		array_del(parent_node->children, new_self_index, 1);
+	}
+
+	// Push self as child of the new parent
+	if (new_parent.handle)
+	{
+		b8 is_child = false;
+
+		u32 new_parent_index = handle_index(new_parent.handle);
+		struct indirect_access *new_parent_node = &scene->indirect_access[new_parent_index];
+
+		for (u32 i = 0; i < array_len(new_parent_node->children); ++i)
+		{
+			if (new_parent_node->children[i].handle == self_node->self.handle)
+			{
+				is_child = true;
+				break;
+			}
+		}
+		if (!is_child) { array_push(scene->arena, new_parent_node->children, self); }
+		new_parent_node->flags |= HIERARCHY_FLAG_DIRTY;
+	}
+
+	// Set the new parent in self
+	self_node->parent = new_parent;
+	self_node->flags |= HIERARCHY_FLAG_DIRTY;
+}
+
+void
+scene_entity_add_child(struct scene *scene, entity_t self, entity_t child)
+{
+	scene_entity_set_parent(scene, child, self);
+}
+
+void
+scene_entity_set_position_local(struct scene *scene, entity_t self, v3 position)
+{
+	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
+
+	if (glm_vec3_eqv(self_transform->transform_local.translation.data, position.data)) { return; }
+
+	glm_vec3_copy(position.data, self_transform->transform_local.translation.data);
+
+	scene_entity_update_hierarchy(scene, self);
+}
+
+void
+scene_entity_set_position(struct scene *scene, entity_t self, v3 position)
+{
+	u32 self_index = handle_index(self.handle);
+	struct indirect_access *self_node = &scene->indirect_access[self_index];
+
+	if (self_node->parent.handle == INVALID_HANDLE) { scene_entity_set_position_local(scene, self, position); }
+	else
+	{
+		transform_component *parent_transform = scene_component_get_data(scene, self_node->parent, TRANSFORM);
+		m4 inv;
+
+		glm_mat4_inv(parent_transform->matrix.data, inv.data);
+		position = m4_v3(inv, position);
+
+		scene_entity_set_position_local(scene, self, position);
+	}
+}
+
+void
+scene_entity_set_rotation_local(struct scene *scene, entity_t self, v4 rotation)
+{
+	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
+	if (glm_vec4_eqv(self_transform->transform_local.rotation.data, rotation.data)) { return; }
+
+	glm_vec4_copy(rotation.data, self_transform->transform_local.rotation.data);
+
+	scene_entity_update_hierarchy(scene, self);
+}
+
+void
+scene_entity_set_rotation(struct scene *scene, entity_t self, v4 rotation)
+{
+	u32 self_index = handle_index(self.handle);
+	struct indirect_access *self_node = &scene->indirect_access[self_index];
+
+	if (self_node->parent.handle == INVALID_HANDLE) { scene_entity_set_rotation_local(scene, self, rotation); }
+	else
+	{
+		v4 inv;
+		transform_component *parent_transform = scene_component_get_data(scene, self_node->parent, TRANSFORM);
+		glm_mat4_quat(parent_transform->matrix.data, inv.data);
+		glm_quat_inv(inv.data, inv.data);
+
+		glm_quat_mul(rotation.data, inv.data, rotation.data);
+
+		scene_entity_set_rotation_local(scene, self, rotation);
+	}
+}
+
+void
+scene_entity_set_scale_local(struct scene *scene, entity_t self, v3 scale)
+{
+	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
+	if (glm_vec3_eqv(self_transform->transform_local.scale.data, scale.data)) { return; }
+
+	scale.x = (scale.x == 0.0f) ? GLM_FLT_EPSILON : scale.x;
+	scale.y = (scale.y == 0.0f) ? GLM_FLT_EPSILON : scale.y;
+	scale.z = (scale.z == 0.0f) ? GLM_FLT_EPSILON : scale.z;
+
+	glm_vec3_copy(scale.data, self_transform->transform_local.scale.data);
+
+	scene_entity_update_hierarchy(scene, self);
+}
+
+void
+scene_entity_translate(struct scene *scene, entity_t self, v3 delta)
+{
+	u32 self_index = handle_index(self.handle);
+	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
+
+	if (self_node->parent.handle == INVALID_HANDLE)
+	{
+		glm_vec3_add(self_transform->transform_local.translation.data, delta.data,
+		    self_transform->transform_local.translation.data);
+
+		scene_entity_update_hierarchy(scene, self);
+	}
+	else
+	{
+		transform_component *parent_transform = scene_component_get_data(scene, self_node->parent, TRANSFORM);
+		m4 inv;
+		glm_mat4_inv(parent_transform->matrix.data, inv.data);
+		delta = m4_v3(inv, delta);
+		glm_vec3_add(self_transform->transform_local.translation.data, delta.data,
+		    self_transform->transform_local.translation.data);
+
+		scene_entity_update_hierarchy(scene, self);
+	}
+}
+
+void
+scene_entity_rotate(struct scene *scene, entity_t self, v4 delta)
+{
+	u32 self_index = handle_index(self.handle);
+	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
+
+	if (self_node->parent.handle == INVALID_HANDLE)
+	{
+		glm_quat_mul(self_transform->transform_local.rotation.data, delta.data,
+		    self_transform->transform_local.rotation.data);
+		glm_quat_normalize(self_transform->transform_local.rotation.data);
+
+		scene_entity_update_hierarchy(scene, self);
+	}
+	else
+	{
+		// TODO: investigate this
+		v4 inv, q;
+		m4 rotation_matrix;
+		v3 discard;
+
+		glm_decompose_rs(self_transform->matrix.data, rotation_matrix.data, discard.data);
+		glm_mat4_quat(rotation_matrix.data, q.data);
+
+		glm_quat_inv(q.data, inv.data);
+		glm_quat_mul(self_transform->transform_local.rotation.data, inv.data, inv.data);
+		glm_quat_mul(inv.data, delta.data, delta.data);
+		glm_quat_mul(delta.data, q.data, q.data);
+
+		scene_entity_set_rotation_local(scene, self, q);
+	}
 }
 
 void

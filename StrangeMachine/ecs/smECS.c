@@ -386,37 +386,3 @@ system_iter_get_component(struct system_iter *iter, component_t component)
 
 	return (result);
 }
-
-void
-transform_update_tree(transform_component *self)
-{
-	// Compute local transform
-	self->matrix_local = trs_to_m4(self->transform_local);
-
-	// Compute world transform
-	if (self->parent_transform)
-	{
-		glm_mat4_mul(self->parent_transform->matrix.data, self->matrix_local.data, self->matrix.data);
-	}
-	else { glm_mat4_copy(self->matrix_local.data, self->matrix.data); }
-
-	for (u32 i = 0; i < array_len(self->chidren_transform); ++i)
-	{
-		transform_update_tree(self->chidren_transform[i]);
-	}
-}
-
-b8
-transform_is_descendant_of(transform_component *self, transform_component *transform)
-{
-	if (!self->parent_transform) { return (false); }
-
-	if (self->parent_transform == transform) { return (true); }
-
-	for (u32 i = 0; i < array_len(transform->chidren_transform); ++i)
-	{
-		if (transform_is_descendant_of(self, transform->chidren_transform[i])) { return (true); }
-	}
-
-	return (false);
-}

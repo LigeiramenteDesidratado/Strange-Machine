@@ -95,248 +95,16 @@ typedef struct transform
 	m4 matrix;
 	m4 last_matrix;
 
-	// Hierarchy
-	REF(struct transform) parent_transform;
-	array(REF(struct transform)) chidren_transform;
-
-	component_t archetype;
-	entity_t self;
-
-	enum
-	{
-		TRANSFORM_FLAG_NONE = 0,
-		TRANSFORM_FLAG_DIRTY = BIT(0),
-
-		// enforce 32-bit size enum
-		SM__TRANSFORM_FLAG_ENFORCE_ENUM_SIZE = 0x7fffffff
-	} flags;
-
 } transform_component;
 
-void transform_update_tree(transform_component *self);
-b8 transform_is_descendant_of(transform_component *transform, transform_component *desc);
-
 sm__force_inline void
-transform_init(transform_component *transform, entity_t self, component_t archetype)
+transform_init(transform_component *transform)
 {
 	transform->matrix_local = m4_identity();
 
 	transform->matrix = m4_identity();
 	transform->last_matrix = m4_identity();
-
-	transform->parent_transform = 0;
-	transform->chidren_transform = 0;
-
-	transform->archetype = archetype;
-	transform->self = self;
-
 	transform->transform_local = trs_identity();
-
-	transform_update_tree(transform);
-
-	transform->flags = TRANSFORM_FLAG_DIRTY;
-}
-
-sm__force_inline void
-transform_set_dirty(transform_component *transform, b8 dirty)
-{
-	if (dirty) { transform->flags |= TRANSFORM_FLAG_DIRTY; }
-	else { transform->flags &= ~(u32)TRANSFORM_FLAG_DIRTY; }
-}
-
-sm__force_inline b8
-transform_is_dirty(transform_component *transform)
-{
-	b8 result;
-
-	result = (transform->flags & TRANSFORM_FLAG_DIRTY);
-
-	return (result);
-}
-
-sm__force_inline void
-transform_set_parent(struct arena *arena, transform_component *self, transform_component *new_parent)
-{
-	if (self->parent_transform == new_parent) { return; }
-	if (self == new_parent)
-	{
-		log_warn(str8_from("adding self as parent"));
-		return;
-	}
-
-	if (new_parent && transform_is_descendant_of(new_parent, self))
-	{
-		for (u32 i = 0; i < array_len(self->chidren_transform); ++i)
-		{
-			self->chidren_transform[i]->parent_transform = self->parent_transform;
-		}
-
-		array_set_len(arena, self->chidren_transform, 0);
-	}
-
-	if (self->parent_transform)
-	{
-		transform_component *m_parent = self->parent_transform;
-		i32 self_index = -1;
-		for (u32 i = 0; i < array_len(m_parent->chidren_transform); ++i)
-		{
-			if (self == m_parent->chidren_transform[i]) { self_index = i; }
-		}
-		assert(self_index != -1);
-
-		array_del(m_parent->chidren_transform, self_index, 1);
-	}
-
-	if (new_parent)
-	{
-		b8 is_child = false;
-		for (u32 i = 0; i < array_len(new_parent->chidren_transform); ++i)
-		{
-			if (new_parent->chidren_transform[i] == self)
-			{
-				is_child = true;
-				break;
-			}
-		}
-		if (!is_child) { array_push(arena, new_parent->chidren_transform, self); }
-	}
-
-	self->parent_transform = new_parent;
-
-	new_parent->flags |= TRANSFORM_FLAG_DIRTY;
-	self->parent_transform->flags |= TRANSFORM_FLAG_DIRTY;
-}
-
-sm__force_inline void
-transform_add_child(struct arena *arena, transform_component *self, transform_component *child)
-{
-	transform_set_parent(arena, child, self);
-}
-
-sm__force_inline void
-transform_set_position_local(transform_component *transform, v3 position)
-{
-	if (glm_vec3_eqv(transform->transform_local.translation.data, position.data)) { return; }
-
-	glm_vec3_copy(position.data, transform->transform_local.translation.data);
-
-	transform_update_tree(transform);
-}
-
-sm__force_inline void
-transform_set_position(transform_component *transform, v3 position)
-{
-	if (!transform->parent_transform) { transform_set_position_local(transform, position); }
-	else
-	{
-		m4 inv;
-		glm_mat4_inv(transform->parent_transform->matrix.data, inv.data);
-		position = m4_v3(inv, position);
-		// glm_mat4_mulv3(inv.data, position.data, 1.0f, position.data);
-
-		transform_set_position_local(transform, position);
-	}
-}
-
-sm__force_inline void
-transform_set_rotation_local(transform_component *transform, v4 rotation)
-{
-	if (glm_vec4_eqv(transform->transform_local.rotation.data, rotation.data)) { return; }
-
-	glm_vec4_copy(rotation.data, transform->transform_local.rotation.data);
-
-	transform_update_tree(transform);
-}
-
-sm__force_inline void
-transform_set_rotation(transform_component *transform, v4 rotation)
-{
-	if (!transform->parent_transform) { transform_set_rotation_local(transform, rotation); }
-	else
-	{
-		v4 q;
-		glm_mat4_quat(transform->parent_transform->matrix.data, q.data);
-		glm_quat_inv(q.data, q.data);
-
-		glm_quat_mul(rotation.data, q.data, rotation.data);
-
-		transform_set_rotation_local(transform, rotation);
-	}
-}
-
-sm__force_inline void
-transform_set_scale_local(transform_component *transform, v3 scale)
-{
-	if (glm_vec3_eqv(transform->transform_local.scale.data, scale.data)) { return; }
-
-	scale.x = (scale.x == 0.0f) ? GLM_FLT_EPSILON : scale.x;
-	scale.y = (scale.y == 0.0f) ? GLM_FLT_EPSILON : scale.y;
-	scale.z = (scale.z == 0.0f) ? GLM_FLT_EPSILON : scale.z;
-
-	glm_vec3_copy(scale.data, transform->transform_local.scale.data);
-
-	transform_update_tree(transform);
-}
-
-sm__force_inline void
-transform_translate(transform_component *transform, v3 delta)
-{
-	if (!transform->parent_transform)
-	{
-		glm_vec3_add(transform->transform_local.translation.data, delta.data, delta.data);
-		transform_set_position_local(transform, delta);
-	}
-	else
-	{
-		m4 inv;
-		glm_mat4_inv(transform->parent_transform->matrix.data, inv.data);
-		delta = m4_v3(inv, delta);
-		glm_vec3_add(transform->transform_local.translation.data, delta.data, delta.data);
-
-		transform_set_position_local(transform, delta);
-	}
-}
-
-sm__force_inline void
-transform_rotate(transform_component *transform, v4 delta)
-{
-	if (!transform->parent_transform)
-	{
-		v4 q;
-		glm_quat_mul(transform->transform_local.rotation.data, delta.data, q.data);
-		glm_quat_normalize(q.data);
-
-		transform_set_rotation_local(transform, q);
-	}
-	else
-	{
-		v4 inv, q;
-
-		m4 rotation_matrix;
-		v3 discard;
-		glm_decompose_rs(transform->matrix.data, rotation_matrix.data, discard.data);
-		glm_mat4_quat(rotation_matrix.data, q.data);
-
-		glm_quat_inv(q.data, inv.data);
-		glm_quat_mul(transform->transform_local.rotation.data, inv.data, inv.data);
-		glm_quat_mul(inv.data, delta.data, delta.data);
-		glm_quat_mul(delta.data, q.data, q.data);
-
-		transform_set_rotation_local(transform, q);
-	}
-}
-
-sm__force_inline v4
-transform_get_rotation(transform_component *transform)
-{
-	v4 result;
-
-	m4 am;
-	v3 discard;
-	glm_decompose_rs(transform->matrix.data, am.data, discard.data);
-	glm_mat4_quat(am.data, result.data);
-
-	return (result);
 }
 
 typedef struct world
@@ -380,7 +148,7 @@ typedef struct camera
 		b8 is_controlled_by_keyboard_mouse;
 		v2 mouse_last_position;
 
-		entity_t focus_entity;
+		v3 focus_entity;
 		v3 lerp_to_target_position;
 		v4 lerp_to_target_rotation;
 		f32 lerp_to_target_distance;
@@ -658,7 +426,6 @@ sm__force_inline void
 particle_emitter_set_shape_box(struct particle_emitter *emitter, struct aabb box)
 {
 	emitter->shape_type = EMISSION_SHAPE_AABB;
-	;
 	emitter->box = box;
 }
 
