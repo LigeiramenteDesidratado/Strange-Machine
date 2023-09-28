@@ -10,15 +10,20 @@
 
 struct resource
 {
-#define RESOURCE_INVALID  0
-#define RESOURCE_IMAGE	  BIT(0)
-#define RESOURCE_MATERIAL BIT(1)
-#define RESOURCE_MESH	  BIT(2)
-#define RESOURCE_SCENE	  BIT(3)
-#define RESOURCE_ARMATURE BIT(4)
-#define RESOURCE_CLIP	  BIT(5)
-#define RESOURCE_SHADER	  BIT(8)
-	u32 type;
+	enum
+	{
+		RESOURCE_NONE = 0,
+		RESOURCE_IMAGE = BIT(0),
+		RESOURCE_MATERIAL = BIT(1),
+		RESOURCE_MESH = BIT(2),
+		RESOURCE_SCENE = BIT(3),
+		RESOURCE_ARMATURE = BIT(4),
+		RESOURCE_CLIP = BIT(5),
+		RESOURCE_SHADER = BIT(8),
+
+		// enforce 32-bit size enum
+		SM__RESOURCE_ENFORCE_ENUM_SIZE = 0x7fffffff
+	} type;
 
 	str8 name;
 
@@ -46,8 +51,8 @@ void resource_print(struct resource *resource);
 void resource_write(struct resource *resource);
 void resource_for_each(b8 (*cb)(str8, struct resource *, void *), void *user_data);
 
-struct resource resource_get_default_image(void);
-struct resource resource_get_default_material(void);
+struct resource *resource_get_default_image(void);
+struct resource *resource_get_default_material(void);
 
 typedef struct mesh_resource
 {
@@ -73,31 +78,45 @@ typedef struct mesh_resource
 	u32 vbos[4]; /* openGL vertex buffer objects */
 	u32 ebo;     /* openGL vertex buffer object */
 
-	aabb aabb;
+	struct aabb aabb;
 
-#define MESH_FLAG_NONE	     0
-#define MESH_FLAG_DIRTY	     BIT(0)
-#define MESH_FLAG_RENDERABLE BIT(1)
-#define MESH_FLAG_ON_CPU     BIT(2)
-#define MESH_FLAG_ON_GPU     BIT(3)
-#define MESH_FLAG_SKINNED    BIT(4)
-#define MESH_FLAG_DRAW_AABB  BIT(5)
-	u32 flags;
+	enum
+	{
+		MESH_FLAG_NONE = 0,
+		MESH_FLAG_DIRTY = BIT(0),
+		MESH_FLAG_RENDERABLE = BIT(1),
+		MESH_FLAG_ON_CPU = BIT(2),
+		MESH_FLAG_ON_GPU = BIT(3),
+		MESH_FLAG_SKINNED = BIT(4),
+		MESH_FLAG_DRAW_AABB = BIT(5),
+		MESH_FLAG_BLEND = BIT(6),
+		MESH_FLAG_DOUBLE_SIDED = BIT(7),
+
+		// enforce 32-bit size enum
+		MESH_FLAG_ENFORCE_ENUM_SIZE = 0x7fffffff
+	} flags;
 
 } mesh_resource;
 
 typedef struct image_resource
 {
 	u32 width, height;
-#define IMAGE_PIXELFORMAT_UNCOMPRESSED_GRAYSCALE  0x00000001 // 8 bit per pixel (no alpha)
-#define IMAGE_PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA 0x00000002 // 8*2 bpp (2 channels)
-#define IMAGE_PIXELFORMAT_UNCOMPRESSED_ALPHA	  0x00000003 // 8 bpp
-#define IMAGE_PIXELFORMAT_UNCOMPRESSED_R5G6B5	  0x00000004 // 16 bpp
-#define IMAGE_PIXELFORMAT_UNCOMPRESSED_R8G8B8	  0x00000005 // 24 bpp
-#define IMAGE_PIXELFORMAT_UNCOMPRESSED_R5G5B5A1	  0x00000006 // 16 bpp (1 bit alpha)
-#define IMAGE_PIXELFORMAT_UNCOMPRESSED_R4G4B4A4	  0x00000007 // 16 bpp (4 bit alpha)
-#define IMAGE_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8	  0x00000008 // 32 bpp
-	u32 pixel_format;
+
+	enum
+	{
+		IMAGE_PIXELFORMAT_NONE = 0x0,
+		IMAGE_PIXELFORMAT_UNCOMPRESSED_GRAYSCALE = 0x00000001,	// 8 bit per pixel (no alpha)
+		IMAGE_PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA = 0x00000002, // 8*2 bpp (2 channels)
+		IMAGE_PIXELFORMAT_UNCOMPRESSED_ALPHA = 0x00000003,	// 8 bpp
+		IMAGE_PIXELFORMAT_UNCOMPRESSED_R5G6B5 = 0x00000004,	// 16 bpp
+		IMAGE_PIXELFORMAT_UNCOMPRESSED_R8G8B8 = 0x00000005,	// 24 bpp
+		IMAGE_PIXELFORMAT_UNCOMPRESSED_R5G5B5A1 = 0x00000006,	// 16 bpp (1 bit alpha)
+		IMAGE_PIXELFORMAT_UNCOMPRESSED_R4G4B4A4 = 0x00000007,	// 16 bpp (4 bit alpha)
+		IMAGE_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 = 0x00000008,	// 32 bpp
+
+		// enforce 32-bit size enum
+		IMAGE_PIXELFORMAT_ENFORCE_ENUM_SIZE = 0x7fffffff
+	} pixel_format;
 
 	u8 *data;
 	u32 texture_handle;
@@ -146,6 +165,17 @@ struct scene_node
 	v3 scale;
 	v4 rotation;
 
+	enum
+	{
+		NODE_PROP_NONE = 0,
+		NODE_PROP_STATIC_BODY = BIT(0),
+		NODE_PROP_RIGID_BODY = BIT(1),
+		NODE_PROP_PLAYER = BIT(2),
+
+		// enforce 32-bit size enum
+		SM__NODE_PROP_ENFORCE_ENUM_SIZE = 0x7fffffff
+	} prop;
+
 	str8 mesh;
 	str8 material;
 	str8 armature;
@@ -156,14 +186,14 @@ typedef struct scene_resource
 	array(struct scene_node) nodes;
 } scene_resource;
 
-typedef struct vert_shader_resource
+struct vert_shader_resource
 {
 	str8 name;
 	str8 vertex;
 	u32 id;
 
 	struct ref_counter refs;
-} vert_shader_resource;
+};
 
 sm__force_inline struct vert_shader_resource *
 resource_vert_shader_make_reference(struct vert_shader_resource *vertex)
@@ -173,14 +203,14 @@ resource_vert_shader_make_reference(struct vert_shader_resource *vertex)
 	return (vertex);
 }
 
-typedef struct frag_shader_resource
+struct frag_shader_resource
 {
 	str8 name;
 	str8 fragment;
 	u32 id;
 
 	struct ref_counter refs;
-} frag_shader_resource;
+};
 
 sm__force_inline struct frag_shader_resource *
 resource_frag_shader_make_reference(struct frag_shader_resource *fragment)
@@ -190,15 +220,107 @@ resource_frag_shader_make_reference(struct frag_shader_resource *fragment)
 	return (fragment);
 }
 
-struct shaders
+enum shader_type
 {
-	frag_shader_resource *fragment;
-	vert_shader_resource *vertex;
-};
-struct shaders load_shader(str8 fragment, str8 vertex);
+	SHADER_TYPE_B8,
+	SHADER_TYPE_I32,
+	SHADER_TYPE_F32,
 
-// struct scene_resource *load_scene_gltf(str8 filename);
-// struct scene_resource *load_animated_model_gltf(str8 filename);
+	SHADER_TYPE_V2,
+	SHADER_TYPE_V3,
+	SHADER_TYPE_V4,
+
+	SHADER_TYPE_BV2,
+	SHADER_TYPE_BV3,
+	SHADER_TYPE_BV4,
+
+	SHADER_TYPE_IV2,
+	SHADER_TYPE_IV3,
+	SHADER_TYPE_IV4,
+
+	SHADER_TYPE_M2,
+	SHADER_TYPE_M2X3,
+	SHADER_TYPE_M2X4,
+
+	SHADER_TYPE_M3X2,
+	SHADER_TYPE_M3,
+	SHADER_TYPE_M3X4,
+
+	SHADER_TYPE_M4X2,
+	SHADER_TYPE_M4X3,
+	SHADER_TYPE_M4,
+
+	SHADER_TYPE_SAMPLER_1D,
+	SHADER_TYPE_SAMPLER_2D,
+	SHADER_TYPE_SAMPLER_3D,
+
+	SHADER_TYPE_SAMPLER_CUBE,
+	SHADER_TYPE_SAMPLER_1D_SHADOW,
+	SHADER_TYPE_SAMPLER_2D_SHADOW,
+
+	// enforce 32-bit size enum
+	SM__SHADER_TYPE_ENFORCE_ENUM_SIZE = 0x7fffffff
+};
+
+struct shader_attribute
+{
+	str8 name;
+
+	u32 size;
+	enum shader_type type;
+	i32 location;
+};
+
+struct shader_uniform
+{
+	str8 name;
+
+	u32 size;
+	enum shader_type type;
+	i32 location;
+
+	b8 dirty;
+	void *data; // cast to the proper type
+};
+
+struct shader_sampler
+{
+	str8 name;
+
+	enum shader_type type;
+	i32 location;
+
+	b8 dirty;
+};
+
+struct shader_resource
+{
+	struct frag_shader_resource *fragment;
+	struct vert_shader_resource *vertex;
+
+	str8 name;
+	u32 program; // OpenGL program
+
+	u32 attributes_count;
+	array(struct shader_attribute) attributes;
+
+	u32 uniforms_count;
+	array(struct shader_uniform) uniforms;
+
+	u32 samplers_count;
+	array(struct shader_sampler) samplers;
+
+	struct ref_counter refs;
+};
+
+struct shader_resource *load_shader(str8 name, str8 vertex, str8 fragment);
+
+struct shader_attribute shader_resource_get_attribute(struct shader_resource *shader, str8 attribute);
+struct shader_uniform shader_resource_get_uniform(struct shader_resource *shader, str8 uniform);
+struct shader_sampler shader_resource_get_sampler(struct shader_resource *shader, str8 sampler);
+i32 shader_resource_get_attribute_loc(struct shader_resource *shader, str8 attribute, b8 assert);
+i32 shader_resource_get_uniform_loc(struct shader_resource *shader, str8 uniform, b8 assert);
+i32 shader_resource_get_sampler_loc(struct shader_resource *shader, str8 sampler, b8 assert);
 
 // file handling
 extern const u32 FS_FILETYPE_REGULAR;
@@ -208,12 +330,12 @@ extern const u32 FS_FILETYPE_OTHER;
 
 struct fs_stat
 {
-	i64 filesize;	/**< size in bytes, -1 for non-files and unknown */
-	i64 modtime;	/**< last modification time */
-	i64 createtime; /**< like modtime, but for file creation time */
-	i64 accesstime; /**< like modtime, but for file access time */
-	u32 filetype;	/**< File? Directory? Symlink? */
-	i32 readonly;	/**< non-zero if read only, zero if writable. */
+	i64 filesize;	// size in bytes, -1 for non-files and unknown
+	i64 modtime;	// last modification time
+	i64 createtime; // like modtime, but for file creation time
+	i64 accesstime; // like modtime, but for file access time
+	u32 filetype;	// File? Directory? Symlink?
+	i32 readonly;	// non-zero if read only, zero if writable.
 };
 
 struct fs_file
@@ -227,8 +349,17 @@ struct fs_file fs_file_open_read_cstr(const i8 *name);
 struct fs_file fs_file_open_write_cstr(const i8 *name);
 void fs_file_close(struct fs_file *resource_file);
 
+i64 fs_file_write(struct fs_file *file, const void *buffer, size_t size);
+i64 fs_file_read(struct fs_file *file, void *buffer, size_t size);
+i32 fs_file_eof(struct fs_file *file);
+i64 fs_file_tell(struct fs_file *file);
+i32 fs_file_seek(struct fs_file *file, u64 position);
+
+const i8 *
+fs_file_last_error(void);
+
 // Conversion tool utils
-b8 sm___resource_mock_init(struct buf base_memory, i8 *argv[], str8 assets_folder);
+b8 sm___resource_mock_init(i8 *argv[], str8 assets_folder);
 void sm___resource_mock_teardown(void);
 void sm___resource_mock_read(void);
 

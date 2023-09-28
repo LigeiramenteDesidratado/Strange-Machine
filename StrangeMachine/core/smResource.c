@@ -71,22 +71,37 @@ resource_mesh_print(struct mesh_resource *mesh)
 	log_trace(str8_from("        - vertices: {u3d}"), array_len(mesh->positions));
 	log_trace(str8_from("        - indexed : {b}"), mesh->indices != 0);
 	log_trace(str8_from("        - skinned : {b}"), mesh->skin_data.is_skinned);
+	log_trace(str8_from("        - flags   : {u3d}"), mesh->flags);
+}
+
+static str8
+resource_scene_node_prop_str8(u32 prop)
+{
+	switch (prop)
+	{
+	case 0: return str8_from("NO PROP");
+	case NODE_PROP_STATIC_BODY: return str8_from("NODE_PROP_STATIC_BODY");
+	case NODE_PROP_RIGID_BODY: return str8_from("NODE_PROP_RIGID_BODY");
+	case NODE_PROP_PLAYER: return str8_from("NODE_PROP_PLAYER");
+	default: return str8_from("UNKOWN NODE PROP");
+	}
 }
 
 static void
-resource_scene_print(struct scene_resource *mesh)
+resource_scene_print(struct scene_resource *scene)
 {
-	log_trace(str8_from("        - nodes   : {u3d}"), array_len(mesh->nodes));
+	log_trace(str8_from("        - nodes   : {u3d}"), array_len(scene->nodes));
 
-	for (u32 i = 0; i < array_len(mesh->nodes); ++i)
+	for (u32 i = 0; i < array_len(scene->nodes); ++i)
 	{
-		log_trace(str8_from("        - name    : {s}"), mesh->nodes[i].name);
-		log_trace(str8_from("        - position: {v3}"), mesh->nodes[i].position);
-		log_trace(str8_from("        - rotation: {v4}"), mesh->nodes[i].rotation);
-		log_trace(str8_from("        - scale   : {v3}"), mesh->nodes[i].scale);
-		log_trace(str8_from("        - mesh    : {s}"), mesh->nodes[i].mesh);
-		log_trace(str8_from("        - material: {s}"), mesh->nodes[i].material);
-		log_trace(str8_from("        - armature: {s}"), mesh->nodes[i].armature);
+		log_trace(str8_from("        - name    : {s}"), scene->nodes[i].name);
+		log_trace(str8_from("        - position: {v3}"), scene->nodes[i].position);
+		log_trace(str8_from("        - rotation: {v4}"), scene->nodes[i].rotation);
+		log_trace(str8_from("        - scale   : {v3}"), scene->nodes[i].scale);
+		log_trace(str8_from("        - prop    : {s}"), resource_scene_node_prop_str8(scene->nodes[i].prop));
+		log_trace(str8_from("        - mesh    : {s}"), scene->nodes[i].mesh);
+		log_trace(str8_from("        - material: {s}"), scene->nodes[i].material);
+		log_trace(str8_from("        - armature: {s}"), scene->nodes[i].armature);
 	}
 }
 
@@ -128,7 +143,10 @@ struct resource_manager
 
 	struct
 	{
+		struct resource image_resource;
 		struct image_resource image;
+
+		struct resource material_resource;
 		struct material_resource material;
 	} defaults;
 
@@ -141,40 +159,33 @@ struct resource_manager
 
 	array(struct frag_shader_resource) frag_shaders;
 	array(struct vert_shader_resource) vert_shaders;
+	array(struct shader_resource) shaders;
 };
 
 static struct resource_manager RC; // Resource Context
 
 #include "vendor/physfs/src/physfs.h"
 
-// #define CGLTF_IMPLEMENTATION
-// #include "vendor/cgltf/cgltf.h"
+#if 0
+#	define MA_MALLOC(sz)	     arena_reserve(&RC.arena, sz)
+#	define MA_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
+#	define MA_FREE(p)	     arena_free(&RC.arena, p)
 
-#define MA_MALLOC(sz)	     arena_reserve(&RC.arena, sz)
-#define MA_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
-#define MA_FREE(p)	     arena_free(&RC.arena, p)
+#	define DRWAV_MALLOC(sz)	arena_reserve(&RC.arena, sz)
+#	define DRWAV_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
+#	define DRWAV_FREE(p)		arena_free(&RC.arena, p)
 
-#define DRWAV_MALLOC(sz)	arena_reserve(&RC.arena, sz)
-#define DRWAV_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
-#define DRWAV_FREE(p)		arena_free(&RC.arena, p)
+#	define DRFLAC_MALLOC(sz)	 arena_reserve(&RC.arena, sz)
+#	define DRFLAC_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
+#	define DRFLAC_FREE(p)		 arena_free(&RC.arena, p)
 
-#define DRFLAC_MALLOC(sz)	 arena_reserve(&RC.arena, sz)
-#define DRFLAC_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
-#define DRFLAC_FREE(p)		 arena_free(&RC.arena, p)
+#	define DRMP3_MALLOC(sz)	arena_reserve(&RC.arena, sz)
+#	define DRMP3_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
+#	define DRMP3_FREE(p)		arena_free(&RC.arena, p)
 
-#define DRMP3_MALLOC(sz)	arena_reserve(&RC.arena, sz)
-#define DRMP3_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
-#define DRMP3_FREE(p)		arena_free(&RC.arena, p)
-
-#define MINIAUDIO_IMPLEMENTATION
-
-// #include "vendor/miniaudio/miniaudio.h"
-
-// #define STBI_MALLOC(sz)	       arena_reserve(&RC.arena, sz)
-// #define STBI_REALLOC(p, newsz) arena_resize(&RC.arena, p, newsz)
-// #define STBI_FREE(p)	       arena_free(&RC.arena, p)
-// #define STB_IMAGE_IMPLEMENTATION
-// #include "vendor/stb/stb_image.h"
+#	define MINIAUDIO_IMPLEMENTATION
+#	include "vendor/miniaudio/miniaudio.h"
+#endif
 
 static b8 fs_image_write(struct fs_file *file, struct image_resource *image);
 static b8 fs_image_read(struct fs_file *file, struct image_resource *image);
@@ -725,7 +736,7 @@ sm__resource_prefetch(str8 resource_name)
 
 	struct resource *result = resource_push(&resource);
 
-	log_trace(str8_from("file read succesfully: {s}"), result->name);
+	log_trace(str8_from("file header read succesfully: {s}"), result->name);
 
 	return (result);
 }
@@ -745,21 +756,29 @@ sm__resource_manager_load_defaults(void)
 		};
 
 		RC.defaults.image = default_image;
+		RC.defaults.image_resource =
+		    resource_make(str8_from("StrangeMachineDefaultImage"), RESOURCE_IMAGE, &RC.defaults.image);
 	}
 
 	{
 		struct material_resource default_material = {
-		    .color = WHITE,
+		    .color = cWHITE,
 		    .image = str8_from("StrangeMachineDefaultImage"),
 		};
 		RC.defaults.material = default_material;
+		RC.defaults.material_resource =
+		    resource_make(str8_from("StrangeMachineDefaultMaterial"), RESOURCE_MATERIAL, &RC.defaults.material);
 	}
 }
 
+static void init_miniaudio();
+
 b8
-resource_manager_init(struct buf base_memory, i8 *argv[], str8 assets_folder)
+resource_manager_init(i8 *argv[], str8 assets_folder)
 {
-	arena_make(&RC.arena, base_memory);
+	struct buf m_resource = base_memory_reserve(MB(15));
+
+	arena_make(&RC.arena, m_resource);
 	arena_validate(&RC.arena);
 
 	array_set_cap(&RC.arena, RC.resources, 64);
@@ -769,6 +788,20 @@ resource_manager_init(struct buf base_memory, i8 *argv[], str8 assets_folder)
 	array_set_cap(&RC.arena, RC.materials, 64);
 	array_set_cap(&RC.arena, RC.armatures, 16);
 	array_set_cap(&RC.arena, RC.scenes, 16);
+	array_set_cap(&RC.arena, RC.shaders, 16);
+	array_set_cap(&RC.arena, RC.frag_shaders, 32);
+	array_set_cap(&RC.arena, RC.vert_shaders, 32);
+
+	memset(RC.resources, 0x0, sizeof(struct resource) * 64);
+	memset(RC.images, 0x0, sizeof(struct image_resource) * 64);
+	memset(RC.meshes, 0x0, sizeof(struct mesh_resource) * 64);
+	memset(RC.clips, 0x0, sizeof(struct clip_resource) * 64);
+	memset(RC.materials, 0x0, sizeof(struct material_resource) * 64);
+	memset(RC.armatures, 0x0, sizeof(struct armature_resource) * 16);
+	memset(RC.scenes, 0x0, sizeof(struct scene_resource) * 16);
+	memset(RC.shaders, 0x0, sizeof(struct shader_resource) * 16);
+	memset(RC.frag_shaders, 0x0, sizeof(struct frag_shader_resource) * 32);
+	memset(RC.vert_shaders, 0x0, sizeof(struct vert_shader_resource) * 32);
 
 	PHYSFS_Allocator a = {
 	    .Malloc = (void *(*)(unsigned long long))sm__physfs_malloc,
@@ -804,6 +837,8 @@ resource_manager_init(struct buf base_memory, i8 *argv[], str8 assets_folder)
 	RC.map = str8_resource_map_make(&RC.arena);
 
 	sm__resource_manager_load_defaults();
+
+	// init_miniaudio();
 
 	return (true);
 }
@@ -971,16 +1006,77 @@ fs_file_open_write_cstr(const i8 *name)
 }
 
 void
-fs_file_close(struct fs_file *resource_file)
+fs_file_close(struct fs_file *file)
 {
-	assert(resource_file->ok);
-	assert(resource_file->fsfile);
+	assert(file->ok);
+	assert(file->fsfile);
 
-	PHYSFS_close(resource_file->fsfile);
+	PHYSFS_close(file->fsfile);
 
-	resource_file->fsfile = 0;
-	resource_file->ok = false;
-	resource_file->status = (struct fs_stat){0};
+	file->fsfile = 0;
+	file->ok = false;
+	file->status = (struct fs_stat){0};
+}
+
+i64
+fs_file_write(struct fs_file *file, const void *src, size_t size)
+{
+	i64 result;
+
+	result = PHYSFS_writeBytes(file->fsfile, src, size);
+
+	return (result);
+}
+
+i64
+fs_file_read(struct fs_file *file, void *buffer, size_t size)
+{
+	i64 result;
+
+	result = PHYSFS_readBytes(file->fsfile, buffer, size);
+
+	return (result);
+}
+
+i32
+fs_file_eof(struct fs_file *file)
+{
+	i32 result;
+
+	result = PHYSFS_eof(file->fsfile);
+
+	return (result);
+}
+
+i64
+fs_file_tell(struct fs_file *file)
+{
+	i32 result;
+
+	result = PHYSFS_tell(file->fsfile);
+
+	return (result);
+}
+
+i32
+fs_file_seek(struct fs_file *file, u64 position)
+{
+	i32 result;
+
+	result = PHYSFS_seek(file->fsfile, position);
+
+	return (result);
+}
+
+const i8 *
+fs_file_last_error(void)
+{
+	const i8 *result;
+
+	PHYSFS_ErrorCode err = PHYSFS_getLastErrorCode();
+	result = PHYSFS_getErrorByCode(err);
+
+	return (result);
 }
 
 static b8
@@ -995,7 +1091,7 @@ fs_image_write(struct fs_file *file, struct image_resource *image)
 	u32 size = resource_image_size(image->width, image->height, image->pixel_format);
 
 	i64 bw = PHYSFS_writeBytes(file->fsfile, image->data, size * sizeof(u8));
-	if (bw != size * sizeof(u8))
+	if (bw != (i64)(size * sizeof(u8)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing image data"));
 		assert(false);
@@ -1007,8 +1103,6 @@ fs_image_write(struct fs_file *file, struct image_resource *image)
 static b8
 fs_image_read(struct fs_file *file, struct image_resource *image)
 {
-	log_trace(str8_from("    __// reading material"));
-
 	image->width = fs_read_u32(file);
 	image->height = fs_read_u32(file);
 	image->pixel_format = fs_read_u32(file);
@@ -1017,8 +1111,8 @@ fs_image_read(struct fs_file *file, struct image_resource *image)
 
 	image->data = arena_reserve(&RC.arena, size);
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, image->data, size * sizeof(u8));
-	if (bw != size * sizeof(u8))
+	i64 br = PHYSFS_readBytes(file->fsfile, image->data, size * sizeof(u8));
+	if (br != (i64)(size * sizeof(u8)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading image data"));
 		return (false);
@@ -1044,8 +1138,6 @@ fs_material_write(struct fs_file *file, struct material_resource *material)
 static b8
 fs_material_read(struct fs_file *file, struct material_resource *material)
 {
-	log_trace(str8_from("    __// reading mesh"));
-
 	material->color.hex = fs_read_u32(file);
 	material->double_sided = fs_read_b8(file);
 	material->image = fs_read_str8(file);
@@ -1066,6 +1158,8 @@ fs_mesh_write(struct fs_file *file, struct mesh_resource *mesh)
 	fs_write_v3a(file, mesh->normals);
 	fs_write_u32a(file, mesh->indices);
 
+	fs_write_u32(file, mesh->flags);
+
 	fs_write_b8(file, mesh->skin_data.is_skinned);
 	if (mesh->skin_data.is_skinned)
 	{
@@ -1079,13 +1173,13 @@ fs_mesh_write(struct fs_file *file, struct mesh_resource *mesh)
 static b8
 fs_mesh_read(struct fs_file *file, struct mesh_resource *mesh)
 {
-	log_trace(str8_from("    __// reading mesh"));
-
 	mesh->positions = fs_read_v3a(file);
 	mesh->uvs = fs_read_v2a(file);
 	mesh->colors = fs_read_v4a(file);
 	mesh->normals = fs_read_v3a(file);
 	mesh->indices = fs_read_u32a(file);
+
+	mesh->flags = fs_read_u32(file);
 
 	mesh->skin_data.is_skinned = fs_read_b8(file);
 	if (mesh->skin_data.is_skinned)
@@ -1115,6 +1209,8 @@ fs_scene_write(struct fs_file *file, struct scene_resource *scene)
 		fs_write_v3(file, node->scale);
 		fs_write_v4(file, node->rotation);
 
+		fs_write_u32(file, node->prop);
+
 		str8 empty = str8_from("\0");
 		if (node->mesh.size > 0) { fs_write_str8(file, node->mesh); }
 		else { fs_write_str8(file, empty); }
@@ -1132,8 +1228,6 @@ fs_scene_write(struct fs_file *file, struct scene_resource *scene)
 static b8
 fs_scene_read(struct fs_file *file, struct scene_resource *scene)
 {
-	log_trace(str8_from("    __// reading scene"));
-
 	u32 len = fs_read_u32(file);
 	array_set_len(&RC.arena, scene->nodes, len);
 	for (u32 i = 0; i < len; ++i)
@@ -1146,6 +1240,8 @@ fs_scene_read(struct fs_file *file, struct scene_resource *scene)
 		node->position = fs_read_v3(file);
 		node->scale = fs_read_v3(file);
 		node->rotation = fs_read_v4(file);
+
+		node->prop = fs_read_u32(file);
 
 		str8 name = fs_read_str8(file);
 		if (str8_eq(name, str8_from("\0"))) { node->mesh = str8_empty_const; }
@@ -1173,7 +1269,7 @@ fs_armature_write(struct fs_file *file, struct armature_resource *armature)
 	fs_write_u32(file, len);
 	for (u32 i = 0; i < len; ++i)
 	{
-		fs_write_v4(file, armature->rest.joints[i].position);
+		fs_write_v4(file, armature->rest.joints[i].translation);
 		fs_write_v4(file, armature->rest.joints[i].rotation);
 		fs_write_v3(file, armature->rest.joints[i].scale);
 	}
@@ -1184,7 +1280,7 @@ fs_armature_write(struct fs_file *file, struct armature_resource *armature)
 	fs_write_u32(file, len);
 	for (u32 i = 0; i < len; ++i)
 	{
-		fs_write_v4(file, armature->bind.joints[i].position);
+		fs_write_v4(file, armature->bind.joints[i].translation);
 		fs_write_v4(file, armature->bind.joints[i].rotation);
 		fs_write_v3(file, armature->bind.joints[i].scale);
 	}
@@ -1199,14 +1295,12 @@ fs_armature_write(struct fs_file *file, struct armature_resource *armature)
 static b8
 fs_armature_read(struct fs_file *file, struct armature_resource *armature)
 {
-	log_trace(str8_from("    __// reading armature"));
-
 	// reading rest pose
 	u32 len = fs_read_u32(file);
 	array_set_len(&RC.arena, armature->rest.joints, len);
 	for (u32 i = 0; i < len; ++i)
 	{
-		armature->rest.joints[i].position = fs_read_v4(file);
+		armature->rest.joints[i].translation = fs_read_v4(file);
 		armature->rest.joints[i].rotation = fs_read_v4(file);
 		armature->rest.joints[i].scale = fs_read_v3(file);
 	}
@@ -1217,7 +1311,7 @@ fs_armature_read(struct fs_file *file, struct armature_resource *armature)
 	array_set_len(&RC.arena, armature->bind.joints, len);
 	for (u32 i = 0; i < len; ++i)
 	{
-		armature->bind.joints[i].position = fs_read_v4(file);
+		armature->bind.joints[i].translation = fs_read_v4(file);
 		armature->bind.joints[i].rotation = fs_read_v4(file);
 		armature->bind.joints[i].scale = fs_read_v3(file);
 	}
@@ -1250,7 +1344,7 @@ sm__write_track(struct fs_file *file, struct track *track)
 
 		i64 bw =
 		    PHYSFS_writeBytes(file->fsfile, track->frames_scalar, len * sizeof(*track->frames_scalar));
-		if (bw != len * sizeof(*track->frames_scalar))
+		if (bw != (i64)(len * sizeof(*track->frames_scalar)))
 		{
 			sm__physfs_log_last_error(str8_from("error while writing frames_scalar"));
 			assert(0);
@@ -1263,7 +1357,7 @@ sm__write_track(struct fs_file *file, struct track *track)
 		fs_write_u32(file, len);
 
 		i64 bw = PHYSFS_writeBytes(file->fsfile, track->frames_v3, len * sizeof(*track->frames_v3));
-		if (bw != len * sizeof(*track->frames_v3))
+		if (bw != (i64)(len * sizeof(*track->frames_v3)))
 		{
 			sm__physfs_log_last_error(str8_from("error while writing frames_v3"));
 			assert(0);
@@ -1276,7 +1370,7 @@ sm__write_track(struct fs_file *file, struct track *track)
 		fs_write_u32(file, len);
 
 		i64 bw = PHYSFS_writeBytes(file->fsfile, track->frames_v4, len * sizeof(*track->frames_v4));
-		if (bw != len * sizeof(*track->frames_v4))
+		if (bw != (i64)(len * sizeof(*track->frames_v4)))
 		{
 			sm__physfs_log_last_error(str8_from("error while writing frames_v4"));
 			assert(0);
@@ -1291,7 +1385,10 @@ sm__write_track(struct fs_file *file, struct track *track)
 static void
 sm__read_track(struct fs_file *file, struct track *track)
 {
-	track->interpolation = fs_read_u32(file);
+	u32 interp = 0;
+	// track->interpolation = fs_read_u32(file);
+	interp = fs_read_u32(file);
+	memcpy((u32 *)&track->interpolation, &interp, sizeof(u32));
 	assert(track->interpolation == INTERPOLATION_CONSTANT || track->interpolation == INTERPOLATION_LINEAR ||
 	       track->interpolation == INTERPOLATION_CUBIC);
 
@@ -1308,7 +1405,7 @@ sm__read_track(struct fs_file *file, struct track *track)
 
 			i64 br =
 			    PHYSFS_readBytes(file->fsfile, track->frames_scalar, len * sizeof(*track->frames_scalar));
-			if (br != len * sizeof(*track->frames_scalar))
+			if (br != (i64)(len * sizeof(*track->frames_scalar)))
 			{
 				sm__physfs_log_last_error(str8_from("error while reading frames_scalar"));
 				assert(0);
@@ -1322,7 +1419,7 @@ sm__read_track(struct fs_file *file, struct track *track)
 			array_set_len(&RC.arena, track->frames_v3, len);
 
 			i64 br = PHYSFS_readBytes(file->fsfile, track->frames_v3, len * sizeof(*track->frames_v3));
-			if (br != len * sizeof(*track->frames_v3))
+			if (br != (i64)(len * sizeof(*track->frames_v3)))
 			{
 				sm__physfs_log_last_error(str8_from("error while reading frames_v3"));
 				assert(0);
@@ -1336,7 +1433,7 @@ sm__read_track(struct fs_file *file, struct track *track)
 			array_set_len(&RC.arena, track->frames_v4, len);
 
 			i64 br = PHYSFS_readBytes(file->fsfile, track->frames_v4, len * sizeof(*track->frames_v4));
-			if (br != len * sizeof(*track->frames_v4))
+			if (br != (i64)(len * sizeof(*track->frames_v4)))
 			{
 				sm__physfs_log_last_error(str8_from("error while reading frames_v4"));
 				assert(0);
@@ -1373,8 +1470,6 @@ fs_clip_write(struct fs_file *file, struct clip_resource *clip)
 static b8
 fs_clip_read(struct fs_file *file, struct clip_resource *clip)
 {
-	log_trace(str8_from("    __// reading clip"));
-
 	u32 len = fs_read_u32(file);
 	array_set_len(&RC.arena, clip->tracks, len);
 	memset(clip->tracks, 0x0, len * sizeof(struct transform_track));
@@ -1397,14 +1492,14 @@ static void
 fs_write_str8(struct fs_file *file, str8 str)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &str.size, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing str8 len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, str.idata, str.size);
-	if (bw != str.size)
+	if (bw != (i64)str.size)
 	{
 		sm__physfs_log_last_error(str8_from("error while writing str8"));
 		assert(0);
@@ -1417,16 +1512,16 @@ fs_read_str8(struct fs_file *file)
 	str8 result;
 
 	u32 str_len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &str_len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &str_len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading str8"));
 		assert(0);
 	}
 
 	i8 *str_data = arena_reserve(&RC.arena, str_len + 1);
-	bw = PHYSFS_readBytes(file->fsfile, str_data, str_len);
-	if (bw != str_len)
+	br = PHYSFS_readBytes(file->fsfile, str_data, str_len);
+	if (br != (i64)str_len)
 	{
 		sm__physfs_log_last_error(str8_from("error while reading str8"));
 		assert(0);
@@ -1443,7 +1538,7 @@ static void
 fs_write_b8(struct fs_file *file, b8 data)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &data, sizeof(b8));
-	if (bw != sizeof(b8))
+	if (bw != (i64)sizeof(b8))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing b8"));
 		assert(0);
@@ -1455,8 +1550,8 @@ fs_read_b8(struct fs_file *file)
 {
 	b8 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, &result, sizeof(b8));
-	if (bw != sizeof(b8))
+	i64 br = PHYSFS_readBytes(file->fsfile, &result, sizeof(b8));
+	if (br != (i64)sizeof(b8))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading b8"));
 		assert(0);
@@ -1470,14 +1565,14 @@ fs_write_b8a(struct fs_file *file, array(b8) data)
 {
 	u32 len = array_len(data);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing b8 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, data, len * sizeof(b8));
-	if (bw != len * sizeof(b8))
+	if (bw != (i64)(len * sizeof(b8)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing b8 array"));
 		assert(0);
@@ -1489,16 +1584,16 @@ static array(b8) fs_read_b8a(struct fs_file *file)
 	array(b8) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading b8 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(b8));
-	if (bw != len * sizeof(b8))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(b8));
+	if (br != (i64)(len * sizeof(b8)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading b8 array"));
 		assert(0);
@@ -1511,7 +1606,7 @@ static void
 fs_write_u8(struct fs_file *file, u8 data)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &data, sizeof(u8));
-	if (bw != sizeof(u8))
+	if (bw != (i64)sizeof(u8))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u8"));
 		assert(0);
@@ -1523,8 +1618,8 @@ fs_read_u8(struct fs_file *file)
 {
 	u8 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, &result, sizeof(u8));
-	if (bw != sizeof(u8))
+	i64 br = PHYSFS_readBytes(file->fsfile, &result, sizeof(u8));
+	if (br != (i64)sizeof(u8))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u8"));
 		assert(0);
@@ -1538,14 +1633,14 @@ fs_write_u8a(struct fs_file *file, array(u8) data)
 {
 	u32 len = array_len(data);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u8 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, data, len * sizeof(u8));
-	if (bw != len * sizeof(u8))
+	if (bw != (i64)(len * sizeof(u8)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u8 array"));
 		assert(0);
@@ -1557,16 +1652,16 @@ static array(u8) fs_read_u8a(struct fs_file *file)
 	array(u8) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u8 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(u8));
-	if (bw != len * sizeof(u8))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(u8));
+	if (br != (i64)(len * sizeof(u8)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u8 array"));
 		assert(0);
@@ -1579,7 +1674,7 @@ static void
 fs_write_i32(struct fs_file *file, i32 data)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &data, sizeof(i32));
-	if (bw != sizeof(i32))
+	if (bw != (i64)sizeof(i32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing i32"));
 		assert(0);
@@ -1591,8 +1686,8 @@ fs_read_i32(struct fs_file *file)
 {
 	i32 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, &result, sizeof(i32));
-	if (bw != sizeof(i32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &result, sizeof(i32));
+	if (br != (i64)sizeof(i32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading i32"));
 		assert(0);
@@ -1606,14 +1701,14 @@ fs_write_i32a(struct fs_file *file, array(i32) data)
 {
 	u32 len = array_len(data);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing i32 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, data, len * sizeof(i32));
-	if (bw != len * sizeof(i32))
+	if (bw != (i64)(len * sizeof(i32)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing i32 array"));
 		assert(0);
@@ -1625,16 +1720,16 @@ static array(i32) fs_read_i32a(struct fs_file *file)
 	array(i32) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading i32 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(i32));
-	if (bw != len * sizeof(i32))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(i32));
+	if (br != (i64)(len * sizeof(i32)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading i32 array"));
 		assert(0);
@@ -1647,7 +1742,7 @@ static void
 fs_write_u32(struct fs_file *file, u32 data)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &data, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u32"));
 		assert(0);
@@ -1659,8 +1754,8 @@ fs_read_u32(struct fs_file *file)
 {
 	u32 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, &result, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &result, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u32"));
 		assert(0);
@@ -1674,14 +1769,14 @@ fs_write_u32a(struct fs_file *file, array(u32) data)
 {
 	u32 len = array_len(data);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u32 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, data, len * sizeof(u32));
-	if (bw != len * sizeof(u32))
+	if (bw != (i64)(len * sizeof(u32)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u32 array"));
 		assert(0);
@@ -1693,16 +1788,16 @@ static array(u32) fs_read_u32a(struct fs_file *file)
 	array(u32) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u32 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(u32));
-	if (bw != len * sizeof(u32))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(u32));
+	if (br != (i64)(len * sizeof(u32)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u32 array"));
 		assert(0);
@@ -1715,7 +1810,7 @@ static void
 fs_write_u64(struct fs_file *file, u64 data)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &data, sizeof(u64));
-	if (bw != sizeof(u64))
+	if (bw != (i64)sizeof(u64))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u64"));
 		assert(0);
@@ -1727,8 +1822,8 @@ fs_read_u64(struct fs_file *file)
 {
 	u64 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, &result, sizeof(u64));
-	if (bw != sizeof(u64))
+	i64 br = PHYSFS_readBytes(file->fsfile, &result, sizeof(u64));
+	if (br != (i64)sizeof(u64))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u64"));
 		assert(0);
@@ -1742,14 +1837,14 @@ fs_write_u64a(struct fs_file *file, array(u64) data)
 {
 	u32 len = array_len(data);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u64))
+	if (bw != (i64)sizeof(u64))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u64 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, data, len * sizeof(u64));
-	if (bw != len * sizeof(u64))
+	if (bw != (i64)(len * sizeof(u64)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing u64 array"));
 		assert(0);
@@ -1761,16 +1856,16 @@ static array(u64) fs_read_u64a(struct fs_file *file)
 	array(u64) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u64))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u64))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u64 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(u64));
-	if (bw != len * sizeof(u64))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(u64));
+	if (br != (i64)(len * sizeof(u64)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u64 array"));
 		assert(0);
@@ -1783,7 +1878,7 @@ static void
 fs_write_f32(struct fs_file *file, f32 data)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &data, sizeof(f32));
-	if (bw != sizeof(f32))
+	if (bw != (i64)sizeof(f32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing f32"));
 		assert(0);
@@ -1795,8 +1890,8 @@ fs_read_f32(struct fs_file *file)
 {
 	f32 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, &result, sizeof(f32));
-	if (bw != sizeof(f32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &result, sizeof(f32));
+	if (br != (i64)sizeof(f32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading f32"));
 		assert(0);
@@ -1810,14 +1905,14 @@ fs_write_f32a(struct fs_file *file, array(f32) data)
 {
 	u32 len = array_len(data);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing f32 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, data, len * sizeof(f32));
-	if (bw != len * sizeof(f32))
+	if (bw != (i64)(len * sizeof(f32)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing f32 array"));
 		assert(0);
@@ -1829,16 +1924,16 @@ static array(f32) fs_read_f32a(struct fs_file *file)
 	array(f32) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading f32 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(f32));
-	if (bw != len * sizeof(f32))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(f32));
+	if (br != (i64)(len * sizeof(f32)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading f32 array"));
 		assert(0);
@@ -1851,7 +1946,7 @@ static void
 fs_write_v2(struct fs_file *file, v2 v)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, v.data, sizeof(v2));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v2"));
 		assert(0);
@@ -1863,8 +1958,8 @@ fs_read_v2(struct fs_file *file)
 {
 	v2 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, result.data, sizeof(v2));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, result.data, sizeof(v2));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v2"));
 		assert(0);
@@ -1878,14 +1973,14 @@ fs_write_v2a(struct fs_file *file, array(v2) v)
 {
 	u32 len = array_len(v);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v2 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, v, len * sizeof(v2));
-	if (bw != len * sizeof(v2))
+	if (bw != (i64)(len * sizeof(v2)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v2 array"));
 		assert(0);
@@ -1898,7 +1993,7 @@ static array(v2) fs_read_v2a(struct fs_file *file)
 
 	u32 len = 0;
 	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v2 array len"));
 		assert(0);
@@ -1906,7 +2001,7 @@ static array(v2) fs_read_v2a(struct fs_file *file)
 
 	array_set_len(&RC.arena, result, len);
 	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(v2));
-	if (bw != len * sizeof(v2))
+	if (bw != (i64)(len * sizeof(v2)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v2 array"));
 		assert(0);
@@ -1919,7 +2014,7 @@ static void
 fs_write_v3(struct fs_file *file, v3 v)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, v.data, sizeof(v3));
-	if (bw != sizeof(v3))
+	if (bw != (i64)sizeof(v3))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v3"));
 		assert(0);
@@ -1931,8 +2026,8 @@ fs_read_v3(struct fs_file *file)
 {
 	v3 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, result.data, sizeof(v3));
-	if (bw != sizeof(v3))
+	i64 br = PHYSFS_readBytes(file->fsfile, result.data, sizeof(v3));
+	if (br != (i64)sizeof(v3))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v3"));
 		assert(0);
@@ -1946,14 +2041,14 @@ fs_write_v3a(struct fs_file *file, array(v3) v)
 {
 	u32 len = array_len(v);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v3 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, v, len * sizeof(v3));
-	if (bw != len * sizeof(v3))
+	if (bw != (i64)(len * sizeof(v3)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v3 array"));
 		assert(0);
@@ -1966,7 +2061,7 @@ static array(v3) fs_read_v3a(struct fs_file *file)
 
 	u32 len = 0;
 	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v3 array len"));
 		assert(0);
@@ -1974,7 +2069,7 @@ static array(v3) fs_read_v3a(struct fs_file *file)
 
 	array_set_len(&RC.arena, result, len);
 	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(v3));
-	if (bw != len * sizeof(v3))
+	if (bw != (i64)(len * sizeof(v3)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v3 array"));
 		assert(0);
@@ -1987,7 +2082,7 @@ static void
 fs_write_v4(struct fs_file *file, v4 v)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, v.data, sizeof(v4));
-	if (bw != sizeof(v4))
+	if (bw != (i64)sizeof(v4))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v4"));
 		assert(0);
@@ -1999,8 +2094,8 @@ fs_read_v4(struct fs_file *file)
 {
 	v4 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, result.data, sizeof(v4));
-	if (bw != sizeof(v4))
+	i64 br = PHYSFS_readBytes(file->fsfile, result.data, sizeof(v4));
+	if (br != (i64)sizeof(v4))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v4"));
 		assert(0);
@@ -2014,14 +2109,14 @@ fs_write_v4a(struct fs_file *file, array(v4) v)
 {
 	u32 len = array_len(v);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v4 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, v, len * sizeof(v4));
-	if (bw != len * sizeof(v4))
+	if (bw != (i64)(len * sizeof(v4)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing v4 array"));
 		assert(0);
@@ -2033,16 +2128,16 @@ static array(v4) fs_read_v4a(struct fs_file *file)
 	array(v4) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v4 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(v4));
-	if (bw != len * sizeof(v4))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(v4));
+	if (br != (i64)(len * sizeof(v4)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading v4 array"));
 		assert(0);
@@ -2055,7 +2150,7 @@ static void
 fs_write_iv4(struct fs_file *file, iv4 v)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, v.data, sizeof(iv4));
-	if (bw != sizeof(iv4))
+	if (bw != (i64)sizeof(iv4))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing iv4"));
 		assert(0);
@@ -2067,8 +2162,8 @@ fs_read_iv4(struct fs_file *file)
 {
 	iv4 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, result.data, sizeof(iv4));
-	if (bw != sizeof(iv4))
+	i64 br = PHYSFS_readBytes(file->fsfile, result.data, sizeof(iv4));
+	if (br != (i64)sizeof(iv4))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading iv4"));
 		assert(0);
@@ -2082,14 +2177,14 @@ fs_write_iv4a(struct fs_file *file, array(iv4) v)
 {
 	u32 len = array_len(v);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing iv4 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, v, len * sizeof(iv4));
-	if (bw != len * sizeof(iv4))
+	if (bw != (i64)(len * sizeof(iv4)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing iv4 array"));
 		assert(0);
@@ -2101,16 +2196,16 @@ static array(iv4) fs_read_iv4a(struct fs_file *file)
 	array(iv4) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading iv4 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(iv4));
-	if (bw != len * sizeof(iv4))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(iv4));
+	if (br != (i64)(len * sizeof(iv4)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading iv4 array"));
 		assert(0);
@@ -2123,7 +2218,7 @@ static void
 fs_write_m4(struct fs_file *file, m4 v)
 {
 	i64 bw = PHYSFS_writeBytes(file->fsfile, v.data, sizeof(m4));
-	if (bw != sizeof(m4))
+	if (bw != (i64)sizeof(m4))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing m4"));
 		assert(0);
@@ -2135,8 +2230,8 @@ fs_read_m4(struct fs_file *file)
 {
 	m4 result;
 
-	i64 bw = PHYSFS_readBytes(file->fsfile, result.data, sizeof(m4));
-	if (bw != sizeof(m4))
+	i64 br = PHYSFS_readBytes(file->fsfile, result.data, sizeof(m4));
+	if (br != (i64)sizeof(m4))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading m4"));
 		assert(0);
@@ -2150,14 +2245,14 @@ fs_write_m4a(struct fs_file *file, array(m4) v)
 {
 	u32 len = array_len(v);
 	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	if (bw != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing m4 array len"));
 		assert(0);
 	}
 
 	bw = PHYSFS_writeBytes(file->fsfile, v, len * sizeof(m4));
-	if (bw != len * sizeof(m4))
+	if (bw != (i64)(len * sizeof(m4)))
 	{
 		sm__physfs_log_last_error(str8_from("error while writing m4 array"));
 		assert(0);
@@ -2169,16 +2264,16 @@ static array(m4) fs_read_m4a(struct fs_file *file)
 	array(m4) result = 0;
 
 	u32 len = 0;
-	i64 bw = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
-	if (bw != sizeof(u32))
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading m4 array len"));
 		assert(0);
 	}
 
 	array_set_len(&RC.arena, result, len);
-	bw = PHYSFS_readBytes(file->fsfile, result, len * sizeof(m4));
-	if (bw != len * sizeof(m4))
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(m4));
+	if (br != (i64)(len * sizeof(m4)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading m4 array"));
 		assert(0);
@@ -2194,7 +2289,7 @@ sm__ma_malloc(size_t size, sm__maybe_unused void *user_data)
 {
 	void *result;
 
-	log_debug(str8_from("Calling malloc"));
+	log_debug(str8_from("Calling malloc: {u6d}"), size);
 
 	result = arena_reserve(&RC.arena, size);
 	return (result);
@@ -2205,7 +2300,7 @@ sm__ma_realloc(void *ptr, size_t size, sm__maybe_unused void *user_data)
 {
 	void *result;
 
-	log_debug(str8_from("Calling realloc"));
+	log_debug(str8_from("Calling realloc: {u6d}"), size);
 
 	result = arena_resize(&RC.arena, ptr, size);
 	return (result);
@@ -2240,18 +2335,18 @@ sm__physfs_vfs_open(sm__maybe_unused ma_vfs *vfs, const i8 *file_path, ma_uint32
 
 	if (file_path == 0 || open_mode == 0) { return (MA_INVALID_ARGS); }
 
-	struct resource_file *r_file = arena_reserve(&RC.arena, sizeof(struct resource_file));
+	struct fs_file *f = arena_reserve(&RC.arena, sizeof(struct fs_file));
 
 	if ((open_mode & MA_OPEN_MODE_READ) != 0)
 	{
 		assert((open_mode & MA_OPEN_MODE_WRITE) == 0);
-		*r_file = resource_file_open_read_cstr(file_path);
+		*f = fs_file_open_read_cstr(file_path);
 	}
-	else { *r_file = resource_file_open_write_cstr(file_path); }
+	else { *f = fs_file_open_write_cstr(file_path); }
 
-	if (!r_file->ok) { return (MA_ERROR); }
+	if (!f->ok) { return (MA_ERROR); }
 
-	*file = r_file;
+	*file = f;
 
 	return (MA_SUCCESS);
 }
@@ -2261,10 +2356,10 @@ sm__physfs_vfs_close(sm__maybe_unused ma_vfs *pVFS, ma_vfs_file file)
 {
 	assert(file != 0);
 
-	struct resource_file *r_file = (struct resource_file *)file;
+	struct fs_file *f = (struct fs_file *)file;
 
-	resource_file_close(r_file);
-	arena_free(&RC.arena, r_file);
+	fs_file_close(f);
+	arena_free(&RC.arena, f);
 
 	return (MA_SUCCESS);
 }
@@ -2277,13 +2372,13 @@ sm__physfs_vfs_read(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, void *dest, 
 	assert(file != 0);
 	assert(dest != 0);
 
-	struct resource_file *r_file = (struct resource_file *)file;
-	result = PHYSFS_readBytes(r_file->fsfile, dest, size);
+	struct fs_file *f = (struct fs_file *)file;
+	result = PHYSFS_readBytes(f->fsfile, dest, size);
 	if (bytes_read != 0) { *bytes_read = result; }
 
 	if (result != size)
 	{
-		if (result == 0 && PHYSFS_eof(r_file->fsfile)) { return (MA_AT_END); }
+		if (result == 0 && PHYSFS_eof(f->fsfile)) { return (MA_AT_END); }
 		else
 		{
 			sm__physfs_log_last_error(str8_from("error while reading bytes"));
@@ -2303,8 +2398,8 @@ sm__physfs_vfs_write(
 	assert(file != 0);
 	assert(src != 0);
 
-	struct resource_file *r_file = (struct resource_file *)file;
-	result = PHYSFS_writeBytes(r_file->fsfile, src, size);
+	struct fs_file *f = (struct fs_file *)file;
+	result = PHYSFS_writeBytes(f->fsfile, src, size);
 
 	if (bytes_written != 0) { *bytes_written = result; }
 
@@ -2319,9 +2414,9 @@ sm__physfs_vfs_seek(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 off
 {
 	assert(file != NULL);
 
-	const struct resource_file *r_file = file;
+	struct fs_file *f = (struct fs_file *)file;
 
-	i64 size = r_file->status.filesize;
+	i64 size = f->status.filesize;
 	assert(size != -1);
 
 	i64 position = 0;
@@ -2332,7 +2427,7 @@ sm__physfs_vfs_seek(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 off
 	case ma_seek_origin_end: position = size + offset; break;
 	case ma_seek_origin_current:
 		{
-			i64 current = PHYSFS_tell(r_file->fsfile);
+			i64 current = PHYSFS_tell(f->fsfile);
 			if (current == -1)
 			{
 				sm__physfs_log_last_error(str8_from("error while telling."));
@@ -2347,7 +2442,7 @@ sm__physfs_vfs_seek(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 off
 	assert(position >= 0);
 	assert(position <= size); // consider EOF
 
-	i32 err = PHYSFS_seek(r_file->fsfile, (u64)position);
+	i32 err = PHYSFS_seek(f->fsfile, (u64)position);
 	if (err == 0)
 	{
 		sm__physfs_log_last_error(str8_from("error while seeking."));
@@ -2363,9 +2458,9 @@ sm__physfs_vfs_tell(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 *cu
 	assert(file != 0);
 	assert(cursor != 0);
 
-	struct resource_file *r_file = file;
+	struct fs_file *f = file;
 
-	i64 result = PHYSFS_tell(r_file->fsfile);
+	i64 result = PHYSFS_tell(f->fsfile);
 	if (result == -1)
 	{
 		*cursor = 0;
@@ -2384,10 +2479,10 @@ sm__physfs_vfs_info(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_file_info
 	assert(file != 0);
 	assert(file_info != 0);
 
-	struct resource_file *r_file = file;
+	struct fs_file *f = file;
 
-	assert(r_file->status.filesize != -1);
-	file_info->sizeInBytes = r_file->status.filesize;
+	assert(f->status.filesize != -1);
+	file_info->sizeInBytes = f->status.filesize;
 
 	return (MA_SUCCESS);
 }
@@ -2399,7 +2494,7 @@ sm__physfs_vfs_openw(sm__maybe_unused ma_vfs *vfs, sm__maybe_unused const wchar_
 	assert(0 && "openw");
 }
 
-ma_result
+static ma_result
 sm__default_vfs_init(ma_default_vfs *vfs, sm__maybe_unused const ma_allocation_callbacks *allocation_cb)
 {
 	if (vfs == 0) { return (MA_INVALID_ARGS); }
@@ -2417,22 +2512,14 @@ sm__default_vfs_init(ma_default_vfs *vfs, sm__maybe_unused const ma_allocation_c
 	return (MA_SUCCESS);
 }
 
-void
+static void
 init_miniaudio()
 {
-	ma_resource_manager_config config_resource;
-	ma_resource_manager resource_manager;
-
-	struct ma
-	{
-		ma_allocation_callbacks alloc_cb;
-		ma_default_vfs vfs;
-		ma_resource_manager resource;
-		ma_engine engine;
-	};
+	static ma_resource_manager_config config_resource;
+	static ma_resource_manager resource_manager;
 
 	config_resource = ma_resource_manager_config_init();
-	ma_default_vfs vfs = {0}; // TODO: allocate
+	static ma_default_vfs vfs = {0};
 	sm__default_vfs_init(&vfs, 0);
 	config_resource.pVFS = &vfs;
 	config_resource.allocationCallbacks = sm__ma_allocation_callbacks_init();
@@ -2444,11 +2531,11 @@ init_miniaudio()
 		exit(1);
 	}
 
-	ma_engine_config config_engine;
-	ma_engine engine;
+	static ma_engine_config config_engine;
+	static ma_engine engine;
 
 	config_engine = ma_engine_config_init();
-	config_engine.pResourceManager = &resource_manager; // <-- Initialized as some earlier stage.
+	config_engine.pResourceManager = &resource_manager;
 	config_engine.allocationCallbacks = sm__ma_allocation_callbacks_init();
 
 	result = ma_engine_init(&config_engine, &engine);
@@ -2463,9 +2550,14 @@ init_miniaudio()
 	ma_engine_listener_set_direction(&engine, 0, 0.0f, 0.0f, 0.0f);
 	ma_engine_listener_set_world_up(&engine, 0, 0.0f, 1.0f, 0.0f);
 
-	ma_sound sound;
-	result = ma_sound_init_from_file(&engine, "exported/church.wav", MA_SOUND_FLAG_DECODE, 0, 0, &sound);
-	if (result != MA_SUCCESS) { exit(1); }
+	static ma_sound sound;
+	result = ma_sound_init_from_file(&engine, "exported/ghost-love.wav", MA_SOUND_FLAG_STREAM, 0, 0, &sound);
+	if (result != MA_SUCCESS)
+	{
+		ma_engine_uninit(&engine);
+		log_error(str8_from("failed to load sound file."));
+		exit(1);
+	}
 
 	ma_sound_set_pinned_listener_index(&sound, 0);
 	ma_sound_set_position(&sound, 10.0f, 0.0f, 0.0f);
@@ -2473,10 +2565,12 @@ init_miniaudio()
 	ma_sound_set_looping(&sound, 1);
 	ma_sound_start(&sound);
 
-	core_wait(5.0f);
-
-	ma_sound_uninit(&sound);
-	ma_engine_uninit(&engine);
+	// core_wait(5.0f);
+	// printf("Press Enter to stop recording...\n");
+	// getchar();
+	//
+	// ma_sound_uninit(&sound);
+	// ma_engine_uninit(&engine);
 }
 #endif
 
@@ -2530,59 +2624,209 @@ load_vert_shader(str8 name)
 	return (result);
 }
 
-struct shaders
-load_shader(str8 fragment, str8 vertex)
+static struct shader_resource *
+shader_resource_make_reference(struct shader_resource *shader)
 {
-	struct shaders result = {0};
+	assert(shader);
+
+	rc_increment(&shader->refs);
+
+	return (shader);
+}
+
+struct shader_attribute
+shader_resource_get_attribute(struct shader_resource *shader, str8 attribute)
+{
+	struct shader_attribute result = {.location = -1};
+
+	for (u32 i = 0; i < shader->attributes_count; ++i)
+	{
+		if (str8_eq(shader->attributes[i].name, attribute))
+		{
+			assert(shader->attributes[i].location != -1);
+			result = shader->attributes[i];
+			break;
+		}
+	}
+
+	return (result);
+}
+
+struct shader_uniform
+shader_resource_get_uniform(struct shader_resource *shader, str8 attribute)
+
+{
+	struct shader_uniform result = {.location = -1};
+
+	for (u32 i = 0; i < shader->uniforms_count; ++i)
+	{
+		if (str8_eq(shader->uniforms[i].name, attribute))
+		{
+			assert(shader->uniforms[i].location != -1);
+			result = shader->uniforms[i];
+			break;
+		}
+	}
+
+	return (result);
+}
+
+struct shader_sampler
+shader_resource_get_sampler(struct shader_resource *shader, str8 sampler)
+
+{
+	struct shader_sampler result = {.location = -1};
+
+	for (u32 i = 0; i < shader->samplers_count; ++i)
+	{
+		if (str8_eq(shader->samplers[i].name, sampler))
+		{
+			assert(shader->samplers[i].location != -1);
+			result = shader->samplers[i];
+			break;
+		}
+	}
+
+	return (result);
+}
+
+i32
+shader_resource_get_attribute_loc(struct shader_resource *shader, str8 attribute, b8 assert)
+{
+	i32 result = -1;
+
+	for (u32 i = 0; i < shader->attributes_count; ++i)
+	{
+		if (str8_eq(shader->attributes[i].name, attribute))
+		{
+			result = shader->attributes[i].location;
+			break;
+		}
+	}
+
+	if (assert) { assert(result != -1); }
+
+	return (result);
+}
+
+i32
+shader_resource_get_uniform_loc(struct shader_resource *shader, str8 uniform, b8 assert)
+{
+	i32 result = -1;
+
+	for (u32 i = 0; i < shader->uniforms_count; ++i)
+	{
+		if (str8_eq(shader->uniforms[i].name, uniform))
+		{
+			result = shader->uniforms[i].location;
+			break;
+		}
+	}
+
+	if (assert) { assert(result != -1); }
+
+	return (result);
+}
+
+i32
+shader_resource_get_sampler_loc(struct shader_resource *shader, str8 sampler, b8 assert)
+{
+	i32 result = -1;
+
+	for (u32 i = 0; i < shader->samplers_count; ++i)
+	{
+		if (str8_eq(shader->samplers[i].name, sampler))
+		{
+			result = shader->samplers[i].location;
+			break;
+		}
+	}
+
+	if (assert) { assert(result != -1); }
+
+	return (result);
+}
+
+struct shader_resource *
+load_shader(str8 name, str8 vertex, str8 fragment)
+{
+	struct shader_resource *result = 0;
+	for (u32 i = 0; i < array_len(RC.shaders); ++i)
+	{
+		if (str8_eq(RC.shaders[i].name, name))
+		{
+			result = &RC.shaders[i];
+			break;
+		}
+	}
+
+	if (result)
+	{
+		assert(str8_eq(result->vertex->name, vertex));
+		assert(str8_eq(result->fragment->name, fragment));
+
+		return shader_resource_make_reference(result);
+	}
+
+	struct shader_resource shader = {0};
+	for (u32 i = 0; i < array_len(RC.vert_shaders); ++i)
+	{
+		if (str8_eq(RC.vert_shaders[i].name, vertex))
+		{
+			shader.vertex = &RC.vert_shaders[i];
+			rc_increment(&shader.vertex->refs);
+			break;
+		}
+	}
 
 	for (u32 i = 0; i < array_len(RC.frag_shaders); ++i)
 	{
 		if (str8_eq(RC.frag_shaders[i].name, fragment))
 		{
-			result.fragment = &RC.frag_shaders[i];
+			shader.fragment = &RC.frag_shaders[i];
+			rc_increment(&shader.fragment->refs);
 			break;
 		}
 	}
 
-	for (u32 i = 0; i < array_len(RC.vert_shaders); ++i)
+	if (shader.vertex == 0)
 	{
-		if (str8_eq(RC.vert_shaders[i].name, vertex))
-		{
-			result.vertex = &RC.vert_shaders[i];
-			break;
-		}
+		shader.vertex = load_vert_shader(vertex);
+		rc_increment(&shader.vertex->refs);
 	}
+	if (shader.fragment == 0)
+	{
+		shader.fragment = load_frag_shader(fragment);
+		rc_increment(&shader.fragment->refs);
+	}
+	// for (u32 i = 0; i < ARRAY_SIZE(shader.attributes); ++i) { shader.attributes[i].location = -1; }
+	// for (u32 i = 0; i < ARRAY_SIZE(shader.uniforms); ++i) { shader.uniforms[i].location = -1; }
 
-	if (result.fragment == 0) { result.fragment = load_frag_shader(fragment); }
-	if (result.vertex == 0) { result.vertex = load_vert_shader(vertex); }
+	shader.name = str8_dup(&RC.arena, name);
 
-	return (result);
+	array_push(&RC.arena, RC.shaders, shader);
+	result = &RC.shaders[array_len(RC.shaders) - 1];
+
+	return shader_resource_make_reference(result);
 }
 
-struct resource
+struct resource *
 resource_get_default_material(void)
 {
-	struct resource result;
-
-	result = resource_make(str8_from("StrangeMachineDefaultMaterial"), RESOURCE_MATERIAL, &RC.defaults.material);
-
-	return (result);
+	return (&RC.defaults.material_resource);
 }
 
-struct resource
+struct resource *
 resource_get_default_image(void)
 {
-	struct resource result;
-
-	result = resource_make(str8_from("StrangeMachineDefaultImage"), RESOURCE_IMAGE, &RC.defaults.image);
-
-	return (result);
+	return (&RC.defaults.image_resource);
 }
 
 b8
-sm___resource_mock_init(struct buf base_memory, i8 *argv[], str8 assets_folder)
+sm___resource_mock_init(i8 *argv[], str8 assets_folder)
 {
-	arena_make(&RC.arena, base_memory);
+	struct buf m_resource = base_memory_reserve(MB(30));
+	arena_make(&RC.arena, m_resource);
 	arena_validate(&RC.arena);
 
 	array_set_cap(&RC.arena, RC.resources, 64);
@@ -2592,6 +2836,9 @@ sm___resource_mock_init(struct buf base_memory, i8 *argv[], str8 assets_folder)
 	array_set_cap(&RC.arena, RC.materials, 64);
 	array_set_cap(&RC.arena, RC.armatures, 16);
 	array_set_cap(&RC.arena, RC.scenes, 16);
+	array_set_cap(&RC.arena, RC.shaders, 16);
+	array_set_cap(&RC.arena, RC.frag_shaders, 32);
+	array_set_cap(&RC.arena, RC.vert_shaders, 32);
 
 	memset(RC.resources, 0x0, sizeof(struct resource) * 64);
 	memset(RC.images, 0x0, sizeof(struct image_resource) * 64);
@@ -2600,6 +2847,9 @@ sm___resource_mock_init(struct buf base_memory, i8 *argv[], str8 assets_folder)
 	memset(RC.materials, 0x0, sizeof(struct material_resource) * 64);
 	memset(RC.armatures, 0x0, sizeof(struct armature_resource) * 16);
 	memset(RC.scenes, 0x0, sizeof(struct scene_resource) * 16);
+	memset(RC.shaders, 0x0, sizeof(struct shader_resource) * 16);
+	memset(RC.vert_shaders, 0x0, sizeof(struct vert_shader_resource) * 32);
+	memset(RC.frag_shaders, 0x0, sizeof(struct frag_shader_resource) * 32);
 
 	PHYSFS_Allocator physfs_alloca = {
 	    .Malloc = (void *(*)(unsigned long long))sm__physfs_malloc,

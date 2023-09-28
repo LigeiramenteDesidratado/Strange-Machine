@@ -6,7 +6,7 @@
 #include "core/smCore.h"
 #include "core/smString.h"
 
-b8 log_init(struct buf base_memory);
+b8 log_init(void);
 void log_teardown(void);
 
 #define LOG_INFO 0

@@ -11,9 +11,11 @@ struct log
 static struct log LC; // log context
 
 b8
-log_init(struct buf base_memory)
+log_init(void)
 {
-	arena_make(&LC.arena, base_memory);
+	struct buf m_log = base_memory_reserve(KB(10));
+
+	arena_make(&LC.arena, m_log);
 
 	return (true);
 }

@@ -19,7 +19,7 @@ if (MSVC)
     add_compile_options(/W4)
 else()
 	# additional warnings
-	add_compile_options(-g3 -Wall -Wextra -Wshadow -Wdouble-promotion -Wno-unused-function -Wjump-misses-init -Wconversion -Wmissing-prototypes)
+	add_compile_options(-ggdb -Wall -Wextra -Wshadow -Wno-unused-function -Wjump-misses-init -Wmissing-prototypes)
 endif()
 
 add_library(${PROJECT_NAME}
@@ -39,10 +39,13 @@ add_library(${PROJECT_NAME}
 	renderer/smRenderer.c
 	animation/smAnimation.c
 	animation/smPose.c
+	audio/smAudio.c
 
 	ecs/smECS.c
 	ecs/smScene.c
 	ecs/smStage.c
+
+	effects/smShake.c
 
 	math/smShape.c
 	math/smCollision.c

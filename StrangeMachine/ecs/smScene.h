@@ -21,6 +21,11 @@ struct indirect_access
 	u32 component_pool_index;
 };
 
+typedef struct entity
+{
+	handle_t handle;
+} entity_t;
+
 struct scene
 {
 	struct handle_pool indirect_handle_pool;
@@ -36,7 +41,7 @@ struct scene
 void scene_make(struct arena *arena, struct scene *scene);
 void scene_release(struct arena *arena, struct scene *scene);
 
-void scene_load(struct arena *arena, struct scene *scene, str8 name);
+entity_t scene_load(struct arena *arena, struct scene *scene, str8 name);
 entity_t scene_load_animated(struct arena *arena, struct scene *scene, str8 name);
 
 entity_t scene_set_main_camera(struct scene *scene, entity_t camera_entity);

@@ -36,7 +36,7 @@ struct track
 #define INTERPOLATION_CONSTANT 0x00000001 // or step
 #define INTERPOLATION_LINEAR   0x00000002
 #define INTERPOLATION_CUBIC    0x00000003
-	u32 interpolation;
+	const u32 interpolation;
 
 #define TRACK_TYPE_SCALAR 0x00000001
 #define TRACK_TYPE_V3	  0x00000002
@@ -70,8 +70,7 @@ struct transform_track
 b8 transform_track_is_valid(struct transform_track *transform_track);
 f32 transform_track_get_start_time(const struct transform_track *transform_track);
 f32 transform_track_get_end_time(const struct transform_track *transform_track);
-struct trs transform_track_sample(
-    struct transform_track *transform_track, struct trs *transform_ref, f32 time, b8 looping);
+trs transform_track_sample(struct transform_track *transform_track, trs *transform_ref, f32 time, b8 looping);
 
 struct transform_track *clip_get_transform_track_from_joint(struct arena *arena, struct clip_resource *clip, u32 joint);
 void clip_recalculate_duration(struct clip_resource *clip);

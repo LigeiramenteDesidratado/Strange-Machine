@@ -5,97 +5,78 @@
 #include "ecs/smECS.h"
 
 struct components_info ctable_components[64] = {
-    [0] =
-	{
-	     .name = str8_from("Transform"),
-	     .id = TRANSFORM,
-	     .size = sizeof(transform_component),
-	     .has_ref_counter = false,
-	     },
-    [1] =
-	{
-	     .name = str8_from("World"),
-	     .id = WORLD,
-	     .size = sizeof(world_component),
-	     .has_ref_counter = false,
-	     },
-    [2] =
-	{
-	     .name = str8_from("Material"),
-	     .id = MATERIAL,
-	     .size = sizeof(material_component),
-	     .has_ref_counter = true,
-	     },
-    [3] =
-	{
-	     .name = str8_from("Camera"),
-	     .id = CAMERA,
-	     .size = sizeof(camera_component),
-	     .has_ref_counter = false,
-	     },
-    [4] =
-	{
-	     .name = str8_from("Mesh"),
-	     .id = MESH,
-	     .size = sizeof(mesh_component),
-	     .has_ref_counter = true,
-	     },
-    [5] =
-	{
-	     .name = str8_from("Hierarchy"),
-	     .id = HIERARCHY,
-	     .size = sizeof(hierarchy_component),
-	     .has_ref_counter = false,
-	     },
-    [6] =
-	{
-	     .name = str8_from("Rigid Body"),
-	     .id = RIGID_BODY,
-	     .size = sizeof(rigid_body_component),
-	     .has_ref_counter = false,
-	     },
-    [7] =
-	{
-	     .name = str8_from("Static Body"),
-	     .id = STATIC_BODY,
-	     .size = sizeof(static_body_component),
-	     .has_ref_counter = false,
-	     },
-    [8] =
-	{
-	     .name = str8_from("Armature"),
-	     .id = ARMATURE,
-	     .size = sizeof(armature_component),
-	     .has_ref_counter = true,
-	     },
-    [9] =
-	{
-	     .name = str8_from("Pose"),
-	     .id = POSE,
-	     .size = sizeof(pose_component),
-	     .has_ref_counter = false,
-	     },
-    [10] =
-	{
-	     .name = str8_from("Clip"),
-	     .id = CLIP,
-	     .size = sizeof(clip_component),
-	     .has_ref_counter = false,
-	     },
-    [11] =
-	{
-	     .name = str8_from("Cross Fade Controller"),
-	     .id = CROSS_FADE_CONTROLLER,
-	     .size = sizeof(cross_fade_controller_component),
-	     .has_ref_counter = false,
-	     },
-    [12] =
-	{
-	     .name = str8_from("Player"),
-	     .id = PLAYER,
-	     .size = sizeof(player_component),
-	     .has_ref_counter = false,
-	     },
+    {
+	.name = str8_from("Transform"),
+	.id = TRANSFORM,
+	.size = sizeof(transform_component),
+	.has_ref_counter = false,
+     },
+    {
+	.name = str8_from("Material"),
+	.id = MATERIAL,
+	.size = sizeof(material_component),
+	.has_ref_counter = true,
+     },
+    {
+	.name = str8_from("Camera"),
+	.id = CAMERA,
+	.size = sizeof(camera_component),
+	.has_ref_counter = false,
+     },
+    {
+	.name = str8_from("Mesh"),
+	.id = MESH,
+	.size = sizeof(mesh_component),
+	.has_ref_counter = true,
+     },
+    {
+	.name = str8_from("Rigid Body"),
+	.id = RIGID_BODY,
+	.size = sizeof(rigid_body_component),
+	.has_ref_counter = false,
+     },
+    {
+	.name = str8_from("Static Body"),
+	.id = STATIC_BODY,
+	.size = sizeof(static_body_component),
+	.has_ref_counter = false,
+     },
+    {
+	.name = str8_from("Armature"),
+	.id = ARMATURE,
+	.size = sizeof(armature_component),
+	.has_ref_counter = true,
+     },
+    {
+	.name = str8_from("Pose"),
+	.id = POSE,
+	.size = sizeof(pose_component),
+	.has_ref_counter = false,
+     },
+    {
+	.name = str8_from("Clip"),
+	.id = CLIP,
+	.size = sizeof(clip_component),
+	.has_ref_counter = false,
+     },
+    {
+	.name = str8_from("Cross Fade Controller"),
+	.id = CROSS_FADE_CONTROLLER,
+	.size = sizeof(cross_fade_controller_component),
+	.has_ref_counter = false,
+     },
+    {
+	.name = str8_from("Player"),
+	.id = PLAYER,
+	.size = sizeof(player_component),
+	.has_ref_counter = false,
+     },
+    {
+	.name = str8_from("Particle Emitter"),
+	.id = PARTICLE_EMITTER,
+	.size = sizeof(particle_emitter_component),
+	.has_ref_counter = false,
+     },
 };
 
 static void
@@ -117,8 +98,9 @@ component_pool_generate_view(struct component_pool *comp_pool, component_t arche
 			size += ctable_components[index].size;
 		}
 	}
-
+	log_trace(str8_from("Bsize: {u3d}"), size);
 	comp_pool->size = (size + 0xFUL) & ~(0xFUL);
+	log_trace(str8_from("Asize: {u3d}"), comp_pool->size);
 }
 
 void
@@ -127,9 +109,10 @@ component_pool_make(struct arena *arena, struct component_pool *comp_pool, u32 c
 	handle_pool_make(arena, &comp_pool->handle_pool, capacity);
 	comp_pool->archetype = archetype;
 	component_pool_generate_view(comp_pool, archetype);
-	// comp_pool->data = mm_aligned_alloc(16, comp_pool->size * capacity);
 	comp_pool->cap = capacity;
+	ecs_manager_print_archeype(arena, archetype);
 	comp_pool->data = arena_aligned(arena, 16, comp_pool->size * capacity);
+	log_trace(str8_from("data ptr: 0x{u6x}"), comp_pool->data);
 }
 
 void
@@ -160,19 +143,19 @@ sm__component_pool_unmake_ref(struct component_pool *comp_pool, handle_t handle)
 		case MESH:
 			{
 				mesh_component *mesh = (mesh_component *)data;
-				resource_unmake_reference(mesh->resource_ref);
+				if (mesh->resource_ref) { resource_unmake_reference(mesh->resource_ref); }
 			}
 			break;
 		case MATERIAL:
 			{
 				material_component *material = (material_component *)data;
-				resource_unmake_reference(material->resource_ref);
+				if (material->resource_ref) { resource_unmake_reference(material->resource_ref); }
 			}
 			break;
 		case ARMATURE:
 			{
 				armature_component *armature = (armature_component *)data;
-				resource_unmake_reference(armature->resource_ref);
+				if (armature->resource_ref) { resource_unmake_reference(armature->resource_ref); }
 			}
 			break;
 		default:
@@ -251,7 +234,11 @@ component_pool_handle_new(struct arena *arena, struct component_pool *comp_pool)
 
 	if (comp_pool->cap != comp_pool->handle_pool.cap)
 	{
-		comp_pool->data = arena_resize(arena, comp_pool->data, comp_pool->handle_pool.cap * comp_pool->size);
+		// comp_pool->data = arena_resize(arena, comp_pool->data, comp_pool->handle_pool.cap * comp_pool->size);
+		void *new_data = arena_aligned(arena, 16, comp_pool->handle_pool.cap * comp_pool->size);
+		memcpy(new_data, comp_pool->data, comp_pool->cap * comp_pool->size);
+		arena_free(arena, comp_pool->data);
+		comp_pool->data = new_data;
 		comp_pool->cap = comp_pool->handle_pool.cap;
 	}
 
@@ -319,34 +306,42 @@ component_has_ref_counter(component_t component)
 // 	return buf;
 // }
 //
-// void
-// ecs_manager_print_archeype(entity_t entity)
-// {
-// 	assert(handle_valid(&EC.indirect_handle_pool, entity.handle));
-//
-// 	u32 index = handle_index(entity.handle);
-// 	assert(index < EC.indirect_handle_pool.cap);
-//
-// 	component_t archetype = EC.indirect_access[index].archetype;
-// 	b8 first = true;
-//
-// 	u32 size = 0;
-// 	for (u64 i = 1; (i - 1) < UINT64_MAX; i <<= 1)
-// 	{
-// 		component_t component = archetype & i;
-// 		if (component)
-// 		{
-// 			u32 component_index = fast_log2_64(component);
-// 			if (first)
-// 			{
-// 				str8_printf(str8_from("({s}"), ctable_components[component_index].name);
-// 				first = false;
-// 			}
-// 			else { str8_printf(str8_from("|{s}"), ctable_components[component_index].name); }
-// 		}
-// 	}
-// 	str8_println(str8_from(")"));
-// }
+
+void
+ecs_manager_print_archeype(struct arena *arena, component_t archetype)
+{
+	b8 first = true;
+
+	struct str8_buf str_buf = str_buf_begin(arena);
+
+	for (u64 i = 1; (i - 1) < UINT64_MAX; i <<= 1)
+	{
+		component_t component = archetype & i;
+		if (component)
+		{
+			u32 component_index = fast_log2_64(component);
+			if (first)
+			{
+				// str8_printf(str8_from("({s}"), ctable_components[component_index].name);
+				str_buf_append_char(arena, &str_buf, '(');
+				str_buf_append(arena, &str_buf, ctable_components[component_index].name);
+				first = false;
+			}
+			else
+			{
+				str_buf_append_char(arena, &str_buf, '|');
+				str_buf_append(arena, &str_buf, ctable_components[component_index].name);
+			}
+		}
+	}
+	str_buf_append_char(arena, &str_buf, ')');
+
+	str8 output = str_buf_end(arena, str_buf);
+
+	log_trace(output);
+
+	arena_free(arena, output.data);
+}
 
 struct system_iter
 system_iter_begin(struct component_pool *comp_pool)
@@ -390,4 +385,38 @@ system_iter_get_component(struct system_iter *iter, component_t component)
 	result = (u8 *)iter->comp_pool_ref->data + (index * iter->comp_pool_ref->size) + v->offset;
 
 	return (result);
+}
+
+void
+transform_update_tree(transform_component *self)
+{
+	// Compute local transform
+	self->matrix_local = trs_to_m4(self->transform_local);
+
+	// Compute world transform
+	if (self->parent_transform)
+	{
+		glm_mat4_mul(self->parent_transform->matrix.data, self->matrix_local.data, self->matrix.data);
+	}
+	else { glm_mat4_copy(self->matrix_local.data, self->matrix.data); }
+
+	for (u32 i = 0; i < array_len(self->chidren_transform); ++i)
+	{
+		transform_update_tree(self->chidren_transform[i]);
+	}
+}
+
+b8
+transform_is_descendant_of(transform_component *self, transform_component *transform)
+{
+	if (!self->parent_transform) { return (false); }
+
+	if (self->parent_transform == transform) { return (true); }
+
+	for (u32 i = 0; i < array_len(transform->chidren_transform); ++i)
+	{
+		if (transform_is_descendant_of(self, transform->chidren_transform[i])) { return (true); }
+	}
+
+	return (false);
 }

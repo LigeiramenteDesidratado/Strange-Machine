@@ -60,7 +60,7 @@ sm__array_push2(struct arena *arena, void *ptr, void *value, size_t size, str8 f
 
 	if (++result->len > result->cap)
 	{
-		result = sm__array_set_cap2(arena, result, result->cap * 2, size, file, line);
+		result = sm__array_set_cap2(arena, result, result->cap * 2, (u32)size, file, line);
 	}
 
 	memcpy((u8 *)result + sm__array_header_size + (size * (result->len - 1)), value, size);
@@ -84,16 +84,18 @@ sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, size_t
 	struct sm__array_header *result = (struct sm__array_header *)dest_ptr;
 	const struct sm__array_header *src = (struct sm__array_header *)src_ptr;
 
-	result = sm__array_set_cap2(arena, result, src->cap, item_size, file, line);
-	result = sm__array_set_len2(arena, result, src->len, item_size, file, line);
+	result = sm__array_set_cap2(arena, result, src->cap, (u32)item_size, file, line);
+	result = sm__array_set_len2(arena, result, src->len, (u32)item_size, file, line);
 
 	memcpy((u8 *)result + sm__array_header_size, (u8 *)src + sm__array_header_size, item_size * src->len);
 
 	return (result);
 }
 
-#define SM__ARRAY_LEN(RAW) RAW[0]
-#define SM__ARRAY_CAP(RAW) RAW[1]
+#if 0
+
+#	define SM__ARRAY_LEN(RAW) RAW[0]
+#	define SM__ARRAY_CAP(RAW) RAW[1]
 
 size_t *
 sm__array_ctor(size_t cap, size_t size)
@@ -182,3 +184,4 @@ sm__array_copy(size_t *dest, size_t *src, size_t size)
 	memcpy((u8 *)dest + SM__ARRAY_HEADER_OFFSET, (u8 *)src + SM__ARRAY_HEADER_OFFSET, size * SM__ARRAY_LEN(src));
 	return (dest);
 }
+#endif

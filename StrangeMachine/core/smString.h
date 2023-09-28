@@ -20,6 +20,7 @@ typedef struct
 
 #define str8_from(S) ((str8){.idata = S, .size = sizeof(S) - 1})
 str8 str8_from_cstr(struct arena *arena, const char *cstr);
+#define str8_from_cstr_stack(S) ((str8){.idata = S, .size = strlen(S)})
 void str8_release(struct arena *arena, str8 *str);
 
 #define strfy_(a) #a
@@ -87,5 +88,7 @@ void str8_printfln(struct arena *arena, str8 format, ...);
 void str8_vprintf(struct arena *arena, str8 format, va_list args);
 
 str8 str8_format(struct arena *arena, str8 format, ...);
+
+void str8_buffer_flush(void);
 
 #endif // SM_CORE_STRING_H

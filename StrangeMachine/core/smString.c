@@ -8,6 +8,33 @@
 static str8 str__conststr = str8_from("ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 static i8 str__strbuf[64 + 1];
 
+static u8 str_buffer_data[1];
+
+static struct dyn_buf str_buffer =
+    (struct dyn_buf){.data = str_buffer_data, .cap = ARRAY_SIZE(str_buffer_data), .len = 0};
+
+void
+str8_buffer_flush(void)
+{
+	if (str_buffer.len > 0)
+	{
+		write(1, str_buffer.data, str_buffer.len);
+		str_buffer.len = 0;
+	}
+}
+
+static void
+sm__buffer_push(str8 str)
+{
+	if (str_buffer.len + str.size > str_buffer.cap) { str8_buffer_flush(); }
+	if (str.size > str_buffer.cap) { write(1, str.idata, str.size); }
+	else
+	{
+		memcpy(str_buffer.data + str_buffer.len, str.data, str.size);
+		str_buffer.len += str.size;
+	}
+}
+
 str8
 i64tostr(i64 value, i32 base)
 {
@@ -367,8 +394,10 @@ str8_dup(struct arena *arena, str8 str)
 {
 	str8 result;
 
-	result.data = arena_reserve(arena, str.size);
+	result.data = arena_reserve(arena, str.size + 1);
 	memcpy(result.data, str.data, str.size);
+
+	result.data[str.size] = 0;
 
 	result.size = str.size;
 
@@ -378,14 +407,17 @@ str8_dup(struct arena *arena, str8 str)
 void
 str8_print(str8 s)
 {
-	write(1, s.data, s.size);
+	// write(1, s.data, s.size);
+	sm__buffer_push(s);
 }
 
 void
 str8_println(str8 s)
 {
-	write(1, s.data, s.size);
-	write(1, str8_newline_const.data, str8_newline_const.size);
+	// write(1, s.data, s.size);
+	// write(1, str8_newline_const.data, str8_newline_const.size);
+	sm__buffer_push(s);
+	sm__buffer_push(str8_newline_const);
 }
 
 u32
@@ -405,9 +437,10 @@ u32
 strc_hash(i8 *str)
 {
 	u32 hash = 5381;
-	i8 c;
+	u8 c;
+	const u8 *p = (u8 *)str;
 
-	while ((c = *str++) != '\0') { hash = ((hash << 5) + hash) + (u32)c; /* hash * 33 + c */ }
+	while ((c = *p++) != '\0') { hash = ((hash << 5) + hash) + c; /* hash * 33 + c */ }
 
 	return (hash);
 }
@@ -463,6 +496,7 @@ sm__str_format(struct arena *arena, str8 format, va_list args)
 				{
 					i += 2;
 					str8 value = va_arg(args, str8);
+					if (value.size == 0) { value = str8_from("NULL"); }
 					str_buf_append(arena, &result_buf, value);
 				}
 				else if (format_id == format_table[1].c[0] ||
@@ -641,8 +675,10 @@ str8_printfln(struct arena *arena, str8 format, ...)
 
 	va_end(args);
 
-	write(1, output.data, output.size);
-	write(1, str8_newline_const.data, str8_newline_const.size);
+	sm__buffer_push(output);
+	sm__buffer_push(str8_newline_const);
+	// write(1, output.data, output.size);
+	// write(1, str8_newline_const.data, str8_newline_const.size);
 
 	arena_free(arena, output.data);
 }
@@ -659,7 +695,8 @@ str8_printf(struct arena *arena, str8 format, ...)
 
 	va_end(args);
 
-	write(1, output.data, output.size);
+	sm__buffer_push(output);
+	// write(1, output.data, output.size);
 
 	arena_free(arena, output.data);
 }
@@ -671,7 +708,8 @@ str8_vprintf(struct arena *arena, str8 format, va_list args)
 
 	output = sm__str_format(arena, format, args);
 
-	write(1, output.data, output.size);
+	sm__buffer_push(output);
+	// write(1, output.data, output.size);
 
 	arena_free(arena, output.data);
 }

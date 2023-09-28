@@ -21,7 +21,7 @@ pose_resize(struct arena *arena, struct pose *pose, u32 size)
 	for (u32 i = 0; i < (parent_new_size - parent_old_size); ++i) { pose->parents[parent_old_size + i] = 0; }
 }
 
-struct trs
+trs
 pose_get_local_transform(struct pose *pose, u32 index)
 {
 	assert(pose != 0);
@@ -30,13 +30,13 @@ pose_get_local_transform(struct pose *pose, u32 index)
 	return pose->joints[index];
 }
 
-struct trs
+trs
 pose_get_global_transform(const struct pose *pose, u32 index)
 {
 	assert(pose != 0);
 	assert(index < array_len(pose->joints));
 
-	struct trs result = pose->joints[index];
+	trs result = pose->joints[index];
 	for (i32 p = pose->parents[index]; p >= 0; p = pose->parents[p])
 	{
 		result = trs_combine(pose->joints[p], result);
@@ -91,7 +91,7 @@ pose_get_matrix_palette(const struct pose *pose, struct arena *arena, array(m4 *
 
 	for (; i < joints_len; ++i)
 	{
-		struct trs t = pose_get_global_transform(pose, i);
+		trs t = pose_get_global_transform(pose, i);
 		(*out)[i] = trs_to_m4(t);
 	}
 }
@@ -126,7 +126,7 @@ pose_blend(struct pose *output, struct pose *a, struct pose *b, f32 t, i32 root)
 			// don't blend if they aren't within the same hierarchy
 			if (!pose_is_in_hierarchy(output, (u32)root, i)) { continue; }
 		}
-		struct trs mix = trs_mix(pose_get_local_transform(a, i), pose_get_local_transform(b, i), t);
+		trs mix = trs_mix(pose_get_local_transform(a, i), pose_get_local_transform(b, i), t);
 		output->joints[i] = mix;
 	}
 }
@@ -141,15 +141,15 @@ pose_is_equal(struct pose *a, struct pose *b)
 	u32 size = array_len(a->joints);
 	for (u32 i = 0; i < size; ++i)
 	{
-		struct trs a_local = a->joints[i];
-		struct trs b_local = b->joints[i];
+		trs a_local = a->joints[i];
+		trs b_local = b->joints[i];
 
 		i32 a_parent = a->parents[i];
 		i32 b_parent = b->parents[i];
 
 		if (a_parent != b_parent) { return (false); }
 
-		if (!glm_vec3_eqv(a_local.position.data, b_local.position.data)) { return (false); }
+		if (!glm_vec3_eqv(a_local.translation.data, b_local.translation.data)) { return (false); }
 
 		b8 is_eq = glm_vec4_eqv_eps(a_local.rotation.data, b_local.rotation.data);
 		if (!is_eq) { return (false); }
@@ -171,6 +171,6 @@ pose_copy(struct arena *arena, struct pose *dest, struct pose *src)
 	if (len != 0)
 	{
 		memcpy(dest->parents, src->parents, len * sizeof(i32));
-		memcpy(dest->joints, src->joints, len * sizeof(struct trs));
+		memcpy(dest->joints, src->joints, len * sizeof(trs));
 	}
 }

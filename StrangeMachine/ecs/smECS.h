@@ -1,18 +1,14 @@
 #ifndef SM_ECS_H
 #define SM_ECS_H
 
-#include "cglm/vec3.h"
 #include "core/smArray.h"
 #include "core/smBase.h"
 #include "core/smHandlePool.h"
+#include "core/smLog.h"
 #include "core/smResource.h"
 #include "core/smString.h"
 #include "math/smMath.h"
-
-typedef struct entity
-{
-	handle_t handle;
-} entity_t;
+#include "particle/smParticle.h"
 
 typedef u64 component_t;
 
@@ -52,7 +48,8 @@ b8 component_pool_handle_is_valid(struct component_pool *comp_pool, handle_t han
 
 b8 component_has_ref_counter(component_t component);
 
-// void ecs_manager_print_archeype(entity_t entity);
+void ecs_manager_print_archeype(struct arena *arena, component_t archetype);
+
 // const i8 *ecs_managr_get_archetype_string(component_t component);
 
 struct system_iter
@@ -66,163 +63,278 @@ b8 system_iter_next(struct system_iter *iter);
 void *system_iter_get_component(struct system_iter *iter, component_t component);
 
 extern struct components_info
+
 {
 	str8 name;
 	component_t id;
 	u32 size;
+
 	b8 has_ref_counter;
 } ctable_components[64];
 
 #define TRANSFORM	      BIT64(0)
-#define WORLD		      BIT64(1)
-#define MATERIAL	      BIT64(2)
-#define CAMERA		      BIT64(3)
-#define MESH		      BIT64(4)
-#define HIERARCHY	      BIT64(5)
-#define RIGID_BODY	      BIT64(6)
-#define STATIC_BODY	      BIT64(7)
-#define ARMATURE	      BIT64(8)
-#define POSE		      BIT64(9)
-#define CLIP		      BIT64(10)
-#define CROSS_FADE_CONTROLLER BIT64(11)
-
-#define PLAYER BIT64(12) // TODO
+#define MATERIAL	      BIT64(1)
+#define CAMERA		      BIT64(2)
+#define MESH		      BIT64(3)
+#define RIGID_BODY	      BIT64(4)
+#define STATIC_BODY	      BIT64(5)
+#define ARMATURE	      BIT64(6)
+#define POSE		      BIT64(7)
+#define CLIP		      BIT64(8)
+#define CROSS_FADE_CONTROLLER BIT64(9)
+#define PLAYER		      BIT64(10) // TODO
+#define PARTICLE_EMITTER      BIT64(11)
 
 typedef struct transform
 {
-	v4 position;
-	v4 rotation;
-	v3 scale;
+	// Local
+	trs transform_local;
+	m4 matrix_local;
 
-#define TRANSFORM_FLAG_NONE  0
-#define TRANSFORM_FLAG_DIRTY BIT(0)
-	u32 flags;
+	// Global
+	m4 matrix;
+	m4 last_matrix;
+
+	// Hierarchy
+	REF(struct transform) parent_transform;
+	array(REF(struct transform)) chidren_transform;
+
+	component_t archetype;
+	entity_t self;
+
+	enum
+	{
+		TRANSFORM_FLAG_NONE = 0,
+		TRANSFORM_FLAG_DIRTY = BIT(0),
+
+		// enforce 32-bit size enum
+		SM__TRANSFORM_FLAG_ENFORCE_ENUM_SIZE = 0x7fffffff
+	} flags;
+
 } transform_component;
 
-#define transform_identity() \
-	((struct transform){.position = v4_zero(), .rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f), .scale = v3_one()})
-#define transform_print(T)                                                                                           \
-	(printf("%s\n\tposition: %f, %f, %f\n\trotation: %f, %f, %f, %f\n\tscale: %f, %f, %f\n", #T, (T).position.x, \
-	    (T).position.y, (T).position.z, (T).rotation.x, (T).rotation.y, (T).rotation.z, (T).rotation.w,          \
-	    (T).scale.x, (T).scale.y, (T).scale.z))
+void transform_update_tree(transform_component *self);
+b8 transform_is_descendant_of(transform_component *transform, transform_component *desc);
 
-sm__force_inline b8
-transform_is_dirty(const transform_component *transform)
+sm__force_inline void
+transform_init(transform_component *transform, entity_t self, component_t archetype)
 {
-	return (transform->flags & TRANSFORM_FLAG_DIRTY);
+	transform->matrix_local = m4_identity();
+
+	transform->matrix = m4_identity();
+	transform->last_matrix = m4_identity();
+
+	transform->parent_transform = 0;
+	transform->chidren_transform = 0;
+
+	transform->archetype = archetype;
+	transform->self = self;
+
+	transform->transform_local = trs_identity();
+
+	transform_update_tree(transform);
+
+	transform->flags = TRANSFORM_FLAG_DIRTY;
 }
 
 sm__force_inline void
 transform_set_dirty(transform_component *transform, b8 dirty)
 {
-	if (dirty) transform->flags |= TRANSFORM_FLAG_DIRTY;
-	else transform->flags &= ~(u32)TRANSFORM_FLAG_DIRTY;
+	if (dirty) { transform->flags |= TRANSFORM_FLAG_DIRTY; }
+	else { transform->flags &= ~(u32)TRANSFORM_FLAG_DIRTY; }
 }
 
-sm__force_inline m4
-transform_to_m4(transform_component transform)
+sm__force_inline b8
+transform_is_dirty(transform_component *transform)
 {
-	m4 result;
+	b8 result;
 
-	/* first, extract the rotation basis of the transform */
-	versor q = {transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w};
-
-	v4 x, y, z;
-	glm_quat_rotatev(q, v3_right().data, x.data);
-	glm_quat_rotatev(q, v3_up().data, y.data);
-	glm_quat_rotatev(q, v3_forward().data, z.data);
-
-	/* next, scale the basis vectors */
-	glm_vec4_scale(x.data, transform.scale.x, x.data);
-	glm_vec4_scale(y.data, transform.scale.y, y.data);
-	glm_vec4_scale(z.data, transform.scale.z, z.data);
-
-	result = m4_new(x.x, x.y, x.z, 0.0f,					   // X basis (and scale)
-	    y.x, y.y, y.z, 0.0f,						   // Y basis (and scale)
-	    z.x, z.y, z.z, 0.0f,						   // Z basis (and scale)
-	    transform.position.x, transform.position.y, transform.position.z, 1.0f // Position
-	);
+	result = (transform->flags & TRANSFORM_FLAG_DIRTY);
 
 	return (result);
 }
 
-sm__force_inline transform_component
-transform_from_m4(m4 m)
+sm__force_inline void
+transform_set_parent(struct arena *arena, transform_component *self, transform_component *new_parent)
 {
-	struct transform result = {0};
-	glm_vec3_copy(m.vec3.position.data, result.position.data); // rotation = first column of mat
-	result.rotation = m4_to_quat(m);
+	if (self->parent_transform == new_parent) { return; }
+	if (self == new_parent)
+	{
+		log_warn(str8_from("adding self as parent"));
+		return;
+	}
 
-	/* get the rotate scale matrix, then estimate the scale from that */
-	m4 rot_scale_mat;
-	glm_mat4_identity(rot_scale_mat.data);
+	if (new_parent && transform_is_descendant_of(new_parent, self))
+	{
+		for (u32 i = 0; i < array_len(self->chidren_transform); ++i)
+		{
+			self->chidren_transform[i]->parent_transform = self->parent_transform;
+		}
 
-	rot_scale_mat = m4_new(m.float16[0], m.float16[1], m.float16[2], 0, m.float16[4], m.float16[5], m.float16[6], 0,
-	    m.float16[8], m.float16[9], m.float16[10], 0, 0, 0, 0, 1);
+		array_set_len(arena, self->chidren_transform, 0);
+	}
 
-	versor q;
-	glm_quat_inv(result.rotation.data, q);
-	m4 inv_rot_mat;
-	glm_quat_mat4(q, inv_rot_mat.data);
-	m4 scale_mat;
-	glm_mat4_mul(rot_scale_mat.data, inv_rot_mat.data, scale_mat.data);
+	if (self->parent_transform)
+	{
+		transform_component *m_parent = self->parent_transform;
+		i32 self_index = -1;
+		for (u32 i = 0; i < array_len(m_parent->chidren_transform); ++i)
+		{
+			if (self == m_parent->chidren_transform[i]) { self_index = i; }
+		}
+		assert(self_index != -1);
 
-	/* the diagonal of the scale matrix is the scale */
-	result.scale.data[0] = scale_mat.c0r0;
-	result.scale.data[1] = scale_mat.c1r1;
-	result.scale.data[2] = scale_mat.c2r2;
+		array_del(m_parent->chidren_transform, self_index, 1);
+	}
 
-	/* out.position.data[3] = 1.0f; */
-	/* out.scale.data[3] = 1.0f; */
+	if (new_parent)
+	{
+		b8 is_child = false;
+		for (u32 i = 0; i < array_len(new_parent->chidren_transform); ++i)
+		{
+			if (new_parent->chidren_transform[i] == self)
+			{
+				is_child = true;
+				break;
+			}
+		}
+		if (!is_child) { array_push(arena, new_parent->chidren_transform, self); }
+	}
 
-	return (result);
+	self->parent_transform = new_parent;
+
+	new_parent->flags |= TRANSFORM_FLAG_DIRTY;
+	self->parent_transform->flags |= TRANSFORM_FLAG_DIRTY;
 }
 
-sm__force_inline transform_component
-transform_combine(transform_component a, transform_component b)
+sm__force_inline void
+transform_add_child(struct arena *arena, transform_component *self, transform_component *child)
 {
-	transform_component result;
-
-	glm_vec3_mul(a.scale.data, b.scale.data, result.scale.data);
-	glm_quat_mul(a.rotation.data, b.rotation.data, result.rotation.data);
-
-	v3 pos;
-	glm_vec3_mul(a.scale.data, b.position.v3.data, pos.data);
-	glm_quat_rotatev(a.rotation.data, pos.data, result.position.data);
-	glm_vec3_add(a.position.data, result.position.data, result.position.data);
-
-	transform_set_dirty(&result, true);
-
-	return (result);
+	transform_set_parent(arena, child, self);
 }
 
-sm__force_inline transform_component
-transform_mix(transform_component a, transform_component b, f32 t)
+sm__force_inline void
+transform_set_position_local(transform_component *transform, v3 position)
 {
-	transform_component result;
+	if (glm_vec3_eqv(transform->transform_local.translation.data, position.data)) { return; }
 
-	glm_vec3_lerp(a.position.v3.data, b.position.v3.data, t, result.position.v3.data);
-	glm_quat_nlerp(a.rotation.data, b.rotation.data, t, result.rotation.data);
-	glm_vec3_lerp(a.scale.data, b.scale.data, t, result.scale.data);
+	glm_vec3_copy(position.data, transform->transform_local.translation.data);
 
-	return (result);
+	transform_update_tree(transform);
 }
 
-sm__force_inline transform_component
-transform_inverse(transform_component t)
+sm__force_inline void
+transform_set_position(transform_component *transform, v3 position)
 {
-	transform_component result;
+	if (!transform->parent_transform) { transform_set_position_local(transform, position); }
+	else
+	{
+		m4 inv;
+		glm_mat4_inv(transform->parent_transform->matrix.data, inv.data);
+		position = m4_v3(inv, position);
+		// glm_mat4_mulv3(inv.data, position.data, 1.0f, position.data);
 
-	glm_quat_inv(t.rotation.data, result.rotation.data);
+		transform_set_position_local(transform, position);
+	}
+}
 
-	result.scale.x = fabsf(t.scale.x) < GLM_FLT_EPSILON ? 0.0f : 1.0f / t.scale.x;
-	result.scale.y = fabsf(t.scale.y) < GLM_FLT_EPSILON ? 0.0f : 1.0f / t.scale.y;
-	result.scale.z = fabsf(t.scale.z) < GLM_FLT_EPSILON ? 0.0f : 1.0f / t.scale.z;
+sm__force_inline void
+transform_set_rotation_local(transform_component *transform, v4 rotation)
+{
+	if (glm_vec4_eqv(transform->transform_local.rotation.data, rotation.data)) { return; }
 
-	v3 inv_trans;
-	glm_vec3_scale(t.position.data, -1.0f, inv_trans.data);
-	glm_vec3_mul(result.scale.data, inv_trans.data, inv_trans.data);
-	glm_quat_rotatev(result.rotation.data, inv_trans.data, result.position.v3.data);
+	glm_vec4_copy(rotation.data, transform->transform_local.rotation.data);
+
+	transform_update_tree(transform);
+}
+
+sm__force_inline void
+transform_set_rotation(transform_component *transform, v4 rotation)
+{
+	if (!transform->parent_transform) { transform_set_rotation_local(transform, rotation); }
+	else
+	{
+		v4 q;
+		glm_mat4_quat(transform->parent_transform->matrix.data, q.data);
+		glm_quat_inv(q.data, q.data);
+
+		glm_quat_mul(rotation.data, q.data, rotation.data);
+
+		transform_set_rotation_local(transform, rotation);
+	}
+}
+
+sm__force_inline void
+transform_set_scale_local(transform_component *transform, v3 scale)
+{
+	if (glm_vec3_eqv(transform->transform_local.scale.data, scale.data)) { return; }
+
+	scale.x = (scale.x == 0.0f) ? GLM_FLT_EPSILON : scale.x;
+	scale.y = (scale.y == 0.0f) ? GLM_FLT_EPSILON : scale.y;
+	scale.z = (scale.z == 0.0f) ? GLM_FLT_EPSILON : scale.z;
+
+	glm_vec3_copy(scale.data, transform->transform_local.scale.data);
+
+	transform_update_tree(transform);
+}
+
+sm__force_inline void
+transform_translate(transform_component *transform, v3 delta)
+{
+	if (!transform->parent_transform)
+	{
+		glm_vec3_add(transform->transform_local.translation.data, delta.data, delta.data);
+		transform_set_position_local(transform, delta);
+	}
+	else
+	{
+		m4 inv;
+		glm_mat4_inv(transform->parent_transform->matrix.data, inv.data);
+		delta = m4_v3(inv, delta);
+		glm_vec3_add(transform->transform_local.translation.data, delta.data, delta.data);
+
+		transform_set_position_local(transform, delta);
+	}
+}
+
+sm__force_inline void
+transform_rotate(transform_component *transform, v4 delta)
+{
+	if (!transform->parent_transform)
+	{
+		v4 q;
+		glm_quat_mul(transform->transform_local.rotation.data, delta.data, q.data);
+		glm_quat_normalize(q.data);
+
+		transform_set_rotation_local(transform, q);
+	}
+	else
+	{
+		v4 inv, q;
+
+		m4 rotation_matrix;
+		v3 discard;
+		glm_decompose_rs(transform->matrix.data, rotation_matrix.data, discard.data);
+		glm_mat4_quat(rotation_matrix.data, q.data);
+
+		glm_quat_inv(q.data, inv.data);
+		glm_quat_mul(transform->transform_local.rotation.data, inv.data, inv.data);
+		glm_quat_mul(inv.data, delta.data, delta.data);
+		glm_quat_mul(delta.data, q.data, q.data);
+
+		transform_set_rotation_local(transform, q);
+	}
+}
+
+sm__force_inline v4
+transform_get_rotation(transform_component *transform)
+{
+	v4 result;
+
+	m4 am;
+	v3 discard;
+	glm_decompose_rs(transform->matrix.data, am.data, discard.data);
+	glm_mat4_quat(am.data, result.data);
 
 	return (result);
 }
@@ -249,43 +361,148 @@ typedef struct material
 
 typedef struct camera
 {
-	v3 position;
-	f32 target_distance;
-	v3 target;
-	v3 front;
+	f32 z_near, z_far;
+	f32 fovx;	  // vertical field of view in radians
+	f32 aspect_ratio; // width/height
 
-	v3 angle;
+	m4 view;
+	m4 projection;
+	m4 view_projection;
 
-	f32 fov;
-	f32 aspect_ratio;
-	f32 move_speed;
-	f32 sensitive;
+	struct
+	{
+		f32 movement_scroll_accumulator;
+		v3 speed;
 
-#define CAMERA_FLAG_PERSPECTIVE	 BIT(0)
-#define CAMERA_FLAG_ORTHOGONAL	 BIT(1)
-#define CAMERA_FLAG_FREE	 BIT(2)
-#define CAMERA_FLAG_THIRD_PERSON BIT(3)
-#define CAMERA_FLAG_CUSTOM	 BIT(4)
-	u32 flags;
+		v2 mouse_smoothed;
+		v2 first_person_rotation;
+
+		b8 is_controlled_by_keyboard_mouse;
+		v2 mouse_last_position;
+
+		entity_t focus_entity;
+		v3 lerp_to_target_position;
+		v4 lerp_to_target_rotation;
+		f32 lerp_to_target_distance;
+		f32 lerp_to_target_alpha;
+
+		b8 lerp_to_target_p;
+		b8 lerp_to_target_r;
+	} free;
+
+	struct
+	{
+		v2 mouse_smoothed;
+		v2 rotation;
+
+		f32 target_distance;
+		v3 target;
+	} third_person;
+
+	enum
+	{
+		CAMERA_FLAG_PERSPECTIVE = BIT(0),
+		CAMERA_FLAG_ORTHOGONAL = BIT(1),
+		CAMERA_FLAG_FREE = BIT(2),
+		CAMERA_FLAG_THIRD_PERSON = BIT(3),
+		CAMERA_FLAG_CUSTOM = BIT(4),
+		//
+		// enforce 32-bit size enum
+		SM2__CAMERA_FLAG_ENFORCE_ENUM_SIZE = 0x7fffffff
+	} flags;
 
 } camera_component;
 
 sm__force_inline m4
-camera_get_projection(const camera_component *camera)
+camera_get_projection2(const camera_component *camera)
 {
-	m4 result;
-	glm_perspective(glm_rad(camera->fov), camera->aspect_ratio, 0.005f, 100.0f, result.data);
+	m4 result = camera->projection;
 
 	return (result);
 }
 
 sm__force_inline m4
-camera_get_view(camera_component *camera)
+camera_get_view2(camera_component *camera)
 {
-	m4 result;
+	m4 result = camera->view;
 
-	glm_lookat(camera->position.data, camera->target.data, v3_up().data, result.data);
+	return (result);
+}
 
+sm__force_inline f32
+camera_get_fov_x(camera_component *camera)
+{
+	return camera->fovx;
+}
+
+sm__force_inline f32
+camera_get_fov_y(camera_component *camera)
+{
+	f32 result;
+
+	result = 2.0f * atanf(tanf(camera->fovx * 0.5f) *
+			      ((f32)core_get_framebuffer_height() / (f32)core_get_framebuffer_width()));
+
+	return (result);
+}
+
+sm__force_inline v3
+camera_screen_to_world(camera_component *camera, v2 position_window, v4 viewport)
+{
+	v3 result;
+#if 0
+
+	v3 position = v3_new(position_window.x, viewport.w - (position_window.y), 1.0f);
+	glm_unproject(position.data, camera->view_projection.data, viewport.data, result.data);
+
+#elif 1
+
+	// A non reverse-z projection matrix is need, we create it
+	m4 projection;
+	glm_perspective(camera_get_fov_x(camera), camera->aspect_ratio, camera->z_near, camera->z_far, projection.data);
+
+	// Convert screen space position to clip space position
+	v4 position_clip;
+	position_clip.x = (position_window.x / viewport.z) * 2.0f - 1.0f;
+	position_clip.y = (position_window.y / viewport.w) * -2.0f + 1.0f;
+	position_clip.z = -1.0f;
+	position_clip.w = 1.0f;
+	// position_clip.x = 2 * (position_screen.x + 0.5f) / viewport.z - 1.0f;
+	// position_clip.y = 1.0f - 2.0f * (position_screen.y + 0.5f) / viewport.w;
+	// position_clip.z = 1.0f;
+	// position_clip.w = 1.0f;
+
+	// Compute world space position
+	m4 view_projection_inverted;
+	glm_mat4_mul(projection.data, camera->view.data, view_projection_inverted.data);
+	glm_mat4_inv(view_projection_inverted.data, view_projection_inverted.data);
+	// glm_mat4_inv(camera->view_projection.data, view_projection_inverted.data);
+
+	glm_mat4_mulv(view_projection_inverted.data, position_clip.data, position_clip.data);
+
+	glm_vec3_divs(position_clip.v3.data, position_clip.w, result.data);
+
+#else
+
+	v3 position = v3_new(position_screen.x, viewport.w - position_screen.y, 1.0f);
+	m4 projection = CreatePerspectiveFieldOfViewLH(
+	    camera_get_fov_y(camera), camera->aspect_ratio, camera->z_near, camera->z_far); // reverse-z
+	v4 position_clip;
+	position_clip.x = (position.x / viewport.z) * 2.0f - 1.0f;
+	position_clip.y = (position.y / viewport.w) * -2.0f + 1.0f;
+	position_clip.z = -1.0f;
+	position_clip.w = 1.0f;
+
+	// Compute world space position
+	m4 view_projection_inverted;
+	glm_mat4_mul(camera->view.data, projection.data, view_projection_inverted.data);
+	glm_mat4_inv(view_projection_inverted.data, view_projection_inverted.data);
+
+	glm_mat4_mulv(view_projection_inverted.data, position_clip.data, position_clip.data);
+
+	glm_vec3_divs(position_clip.v3.data, position_clip.w, result.data);
+
+#endif
 	return (result);
 }
 
@@ -298,7 +515,7 @@ typedef struct mesh
 sm__force_inline void
 mesh_calculate_aabb(mesh_component *mesh)
 {
-	// get min and max vertex to construct bounds (AABB)
+	// get min and max vertex to construct bounds (struct AABB)
 	v3 min_vert;
 	v3 max_vert;
 
@@ -315,30 +532,29 @@ mesh_calculate_aabb(mesh_component *mesh)
 	}
 
 	// create the bounding box
-	aabb axis_aligned_bb;
+	struct aabb axis_aligned_bb;
 	glm_vec3_copy(min_vert.data, axis_aligned_bb.min.data);
 	glm_vec3_copy(max_vert.data, axis_aligned_bb.max.data);
 
 	mesh->mesh_ref->aabb = axis_aligned_bb;
 }
 
-typedef struct hierarchy
-{
-	component_t archetype;
-	entity_t parent;
-} hierarchy_component;
-
 typedef struct rigid_body
 {
-#define RIGID_BODY_COLLISION_SHAPE_SPHEPE  BIT(0)
-#define RIGID_BODY_COLLISION_SHAPE_CAPSULE BIT(1)
+	enum
+	{
+		RB_SHAPE_NONE = 0,
+		RB_SHAPE_SPHERE = BIT(0),
+		RB_SHAPE_CAPSULE = BIT(1),
 
-	u32 collision_shape;
+		// enforce 32-bit size enum
+		SM__RB_SHAPE_ENFORCE_ENUM_SIZE = 0x7fffffff
+	} collision_shape;
 
 	union
 	{
-		sphere sphere;
-		capsule capsule;
+		struct sphere sphere;
+		struct capsule capsule;
 	};
 
 	v3 velocity;
@@ -386,5 +602,71 @@ typedef struct player
 {
 	u32 state;
 } player_component;
+
+enum emission_shape
+{
+	EMISSION_SHAPE_NONE = 0,
+	EMISSION_SHAPE_AABB,
+	EMISSION_SHAPE_CUBE,
+
+	// enforce 32-bit size enum
+	SM__EMISSION_SHAPE_ENFORCE_ENUM_SIZE = 0x7fffffff
+};
+
+typedef struct particle_emitter
+{
+	struct particle free_sentinel;
+	struct particle active_sentinel;
+
+	u32 pool_size;
+	struct particle *particles_pool;
+
+	b8 enable;
+	u32 emission_rate;
+
+	enum emission_shape shape_type;
+
+	union
+	{
+		struct aabb box;
+		trs cube;
+	};
+
+	enum
+	{
+		EMITT_FROM_VOLUME,
+		EMITT_FROM_SHELL,
+	} emitt_from;
+
+} particle_emitter_component;
+
+sm__force_inline void
+particle_emitter_init(struct arena *arena, struct particle_emitter *emitter, u32 n_particles)
+{
+	emitter->pool_size = n_particles;
+	emitter->particles_pool = arena_reserve(arena, sizeof(struct particle) * n_particles);
+	emitter->enable = true;
+	memset(emitter->particles_pool, 0x0, sizeof(struct particle) * n_particles);
+
+	dll_init_sentinel(&emitter->active_sentinel);
+	dll_init_sentinel(&emitter->free_sentinel);
+
+	for (u32 i = 0; i < n_particles; ++i) { dll_insert_back(&emitter->free_sentinel, emitter->particles_pool + i); }
+}
+
+sm__force_inline void
+particle_emitter_set_shape_box(struct particle_emitter *emitter, struct aabb box)
+{
+	emitter->shape_type = EMISSION_SHAPE_AABB;
+	;
+	emitter->box = box;
+}
+
+sm__force_inline void
+particle_emitter_set_shape_cube(struct particle_emitter *emitter, trs cube)
+{
+	emitter->shape_type = EMISSION_SHAPE_CUBE;
+	emitter->cube = cube;
+}
 
 #endif // SM_ECS_H

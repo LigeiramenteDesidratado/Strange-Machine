@@ -5,6 +5,7 @@ add_executable(conv main.c
         ../../StrangeMachine/core/smString.c
         ../../StrangeMachine/core/smArray.c
         ../../StrangeMachine/core/smResource.c
+	../../StrangeMachine/core/smBaseMemory.c
 	../../StrangeMachine/core/smLog.c
 	../../StrangeMachine/core/smArena.c
 	../../StrangeMachine/animation/smPose.c

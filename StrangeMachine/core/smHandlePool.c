@@ -34,8 +34,8 @@ handle_pool_reset(struct handle_pool *pool)
 	for (u32 i = 0, c = pool->cap; i < c; i++) { pool->dense[i] = sm__handle_make(0, i); }
 }
 
-void
-handle_pool_grow(struct arena *arena, struct handle_pool *handle_pool, u32 new_capacity)
+static void
+sm__handle_pool_grow(struct arena *arena, struct handle_pool *handle_pool, u32 new_capacity)
 {
 	handle_pool->dense = arena_resize(arena, handle_pool->dense, new_capacity * sizeof(handle_t));
 	handle_pool->sparse = arena_resize(arena, handle_pool->sparse, new_capacity * sizeof(u32));
@@ -68,7 +68,7 @@ handle_new(struct arena *arena, struct handle_pool *handle_pool)
 
 	if (handle_pool->len >= handle_pool->cap)
 	{
-		handle_pool_grow(arena, handle_pool, handle_pool->cap << 1);
+		sm__handle_pool_grow(arena, handle_pool, handle_pool->cap << 1);
 	}
 
 	u32 index = handle_pool->len++;

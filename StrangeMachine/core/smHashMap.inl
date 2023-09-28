@@ -39,6 +39,14 @@ struct FN(map)
 	u32 capcity;
 };
 
+struct FN(map) FN(map_make)(struct arena *arena);
+struct FN(result) FN(map_put)(struct arena *arena, struct FN(map) * map, GEN_KEY_TYPE key, GEN_VALUE_TYPE value);
+struct FN(result) FN(map_get)(struct FN(map) * map, GEN_KEY_TYPE key);
+struct FN(result) FN(map_remove)(struct arena *arena, struct FN(map) * map, GEN_KEY_TYPE key);
+
+void FN(for_each)(
+    struct FN(map) * map, b8 (*cb)(GEN_KEY_TYPE key, GEN_VALUE_TYPE value, void *user_data), void *user_data);
+
 static void
 FN(sm__expand_if_necessary)(struct arena *arena, struct FN(map) * map)
 {

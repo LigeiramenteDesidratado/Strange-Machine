@@ -1,13 +1,11 @@
-#include "core/smBase.h"
-
 #include "math/smMath.h"
+
 #include "math/smShape.h"
 
-// helper
-capsule
-shape_capsule_new(sphere s, f32 height)
+struct capsule
+shape_capsule_new(struct sphere s, f32 height)
 {
-	capsule result;
+	struct capsule result;
 
 	glm_vec3_copy((vec3){s.center.x, s.center.y - s.radius, s.center.z}, result.base.data);
 	glm_vec3_copy((vec3){s.center.x, (s.center.y - s.radius) + height, s.center.z}, result.tip.data);
@@ -17,10 +15,10 @@ shape_capsule_new(sphere s, f32 height)
 	return (result);
 }
 
-aabb
-shape_get_aabb_sphere(sphere s)
+struct aabb
+shape_get_aabb_sphere(struct sphere s)
 {
-	aabb result;
+	struct aabb result;
 
 	v3 smin;
 	smin.x = s.center.x - s.radius;
@@ -38,10 +36,10 @@ shape_get_aabb_sphere(sphere s)
 	return (result);
 }
 
-aabb
-shape_get_aabb_capsule(capsule c)
+struct aabb
+shape_get_aabb_capsule(struct capsule c)
 {
-	aabb result;
+	struct aabb result;
 
 	v3 bmin;
 	bmin.x = c.base.x - c.radius;
@@ -73,10 +71,10 @@ shape_get_aabb_capsule(capsule c)
 	return (result);
 }
 
-aabb
-shape_get_aabb_triangle(triangle t)
+struct aabb
+shape_get_aabb_triangle(struct triangle t)
 {
-	aabb result;
+	struct aabb result;
 
 	v3 tmin;
 	glm_vec3_minv(t.p2.data, t.p1.data, tmin.data);
@@ -92,11 +90,11 @@ shape_get_aabb_triangle(triangle t)
 	return (result);
 }
 
-aabb
+struct aabb
 shape_get_positions_aabb(array(v3) positions)
 {
 	// Create the bounding box
-	aabb result;
+	struct aabb result;
 
 	v3 min_vert;
 	v3 max_vert;

@@ -4,17 +4,24 @@
 
 static struct dyn_buf BM;
 
+#include <sys/mman.h>
+
 b8
 base_memory_init(u32 size)
 {
 	assert(BM.data == 0 && BM.len == 0 && BM.cap == 0);
 
+#ifdef USE_SM_MALLOC
 	BM.data = mm_malloc(size);
+#else
+	const i32 prot = PROT_READ | PROT_WRITE;
+	const i32 flags = MAP_PRIVATE | MAP_ANONYMOUS;
+
+	BM.data = mmap(NULL, size, prot, flags, -1, 0);
+#endif
 	if (BM.data == 0) { return (false); }
 	BM.len = 0;
 	BM.cap = size;
-
-	atexit(mm__print);
 
 	return (true);
 }
@@ -22,7 +29,11 @@ base_memory_init(u32 size)
 void
 base_memory_teardown(void)
 {
+#ifdef USE_SM_MALLOC
 	mm_free(BM.data);
+#else
+	munmap(BM.data, BM.len);
+#endif
 	BM.len = 0;
 	BM.cap = 0;
 }

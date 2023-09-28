@@ -13,9 +13,11 @@
 
 struct ctx
 {
+	f32 time;
 	f32 dt;
 	f32 fixed_dt;
 	u32 win_width, win_height;
+	u32 framebuffer_width, framebuffer_height;
 	struct arena *arena;
 
 	void *user_data;
@@ -197,21 +199,24 @@ void *sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, 
 		}                                                       \
 	} while (0)
 
-#define array_del(_ptr, i, n)                                                                                \
-	do {                                                                                                 \
-		assert((i) >= 0 && "negative index");                                                        \
-		assert((n) >= -1);                                                                           \
-		struct sm__array_header *raw = sm__a2r(_ptr);                                                \
-		assert((i) < raw->len && "index out of range");                                              \
-		if ((n) == 0) { continue; }                                                                  \
-		if (((n) == -1))                                                                             \
-		{                                                                                            \
-			raw->len = i;                                                                        \
-			continue;                                                                            \
-		}                                                                                            \
-		u32 ___nnn = ((i) + (n) >= raw->len) ? raw->len - (i) : (n);                                 \
-		memmove(&(_ptr)[(i)], &(_ptr)[(i) + ___nnn], sizeof(*(_ptr)) * (raw->len - ((i) + ___nnn))); \
-		raw->len = raw->len - ___nnn;                                                                \
+#define array_del(_ptr, i, n)                                                                                        \
+	do {                                                                                                         \
+		assert((i) >= 0 && "negative index");                                                                \
+		assert((n) >= -1);                                                                                   \
+		struct sm__array_header *raw = sm__a2r(_ptr);                                                        \
+		assert((i) < (i32)raw->len && "index out of range");                                                 \
+		if ((n) == 0) { continue; }                                                                          \
+		if (((n) == -1))                                                                                     \
+		{                                                                                                    \
+			raw->len = i;                                                                                \
+			continue;                                                                                    \
+		}                                                                                                    \
+		u32 ___nnn = ((i) + (n) >= (i32)raw->len) ? raw->len - (i) : (n);                                    \
+		if ((raw->len - ((i) + ___nnn)) > 0)                                                                 \
+		{                                                                                                    \
+			memmove(&(_ptr)[(i)], &(_ptr)[(i) + ___nnn], sizeof(*(_ptr)) * (raw->len - ((i) + ___nnn))); \
+		}                                                                                                    \
+		raw->len = raw->len - ___nnn;                                                                        \
 	} while (0)
 
 #define array_last_item(_ptr)                                       \
@@ -249,7 +254,7 @@ struct node
 #define dll_remove_multiple(n1, n2)	    (dll_remove_multiple_((n1), (n2)))
 
 // Resource
-b8 resource_manager_init(struct buf base_memory, char *argv[], str8 assets_folder);
+b8 resource_manager_init(char *argv[], str8 assets_folder);
 void resource_manager_teardown(void);
 struct arena *resource_get_arena(void);
 
@@ -268,6 +273,11 @@ u64 u64_min_max(u64 min, u64 max);
 i64 i64_min_max(i64 min, i64 max);
 u32 u32_min_max(u32 min, u32 max);
 i32 i32_min_max(i32 min, i32 max);
+
+u32 u32_prng(void);
+i32 i32_prng(void);
+u64 u64_prng(void);
+i64 i64_prng(void);
 
 #define prng_min_max(MIN, MAX)          \
 	_Generic((MIN), u32             \
@@ -290,9 +300,11 @@ struct core_init
 	u32 w, h;
 	u32 total_memory;
 
+	u32 framebuffer_w, framebuffer_h;
 	u32 target_fps; // Desired FPS 60, 30, 24
 	u32 fixed_fps;	// Useful for physics
-	u64 prng_seed;	// Pseudorandom number generator seed
+
+	u64 prng_seed; // Pseudorandom number generator seed
 
 	str8 assets_folder; // Add an archive or directory to the search path.
 
@@ -317,23 +329,40 @@ b8 core_init(struct core_init *core_init);
 void core_main_loop(void);
 void core_teardown(void);
 
-b8 core_key_pressed(u32 key);
-b8 core_key_pressed_lock(u32 key);
+b8 core_button_pressed(u32 button);
 
-v2 core_get_cursor_pos(void);
-v2 core_get_cursor_last_pos(void);
-v2 core_get_cursor_rel_pos(void);
+b8 core_key_pressed(u32 key);
+b8 core_key_pressed_lock(u32 key, u32 frames);
+
+v2 core_get_window_cursor_position(void);
+v2 core_get_screen_cursor_position(void);
+b8 core_is_cursor_in_window(void);
+
+v2 core_get_cursor_pos2(void);
+v2 core_get_cursor_offset(void);
+void core_set_cursor_pos(v2 position);
 
 f32 core_get_scroll(void);
 
 void core_hide_cursor(void);
 void core_show_cursor(void);
 
+b8 core_is_cursor_hidden(void);
+
 void core_wait(f32 seconds);
 
 u32 core_get_fps(void);
 void core_set_fixed_fps(u32 fps);
 void *core_set_user_data(void *user_data);
+
+u32 core_get_window_width(void);
+u32 core_get_window_height(void);
+u32 core_get_framebuffer_width(void);
+u32 core_get_framebuffer_height(void);
+i32 core_get_window_x(void);
+i32 core_get_window_y(void);
+
+f64 core_get_time(void);
 
 /* Printable keys */
 #define KEY_SPACE	  32

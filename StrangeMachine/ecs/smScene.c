@@ -3,6 +3,7 @@
 #include "core/smLog.h"
 #include "core/smResource.h"
 #include "ecs/smECS.h"
+#include "renderer/smRenderer.h"
 
 void
 scene_make(struct arena *arena, struct scene *scene)
@@ -52,18 +53,19 @@ scene_unmake_refs(struct scene *scene)
 	}
 }
 
-void
+entity_t
 scene_load(struct arena *arena, struct scene *scene, str8 name)
 {
-	struct resource *scene_resource = resource_get_by_name(name);
-	if (scene_resource == 0)
+	entity_t result = {0};
+	struct resource *res = resource_get_by_name(name);
+	if (res == 0)
 	{
 		log_error(str8_from("[{s}] scene not found"), name);
-		return;
+		return result;
 	}
-	resource_make_reference(scene_resource);
+	resource_make_reference(res);
 
-	const struct scene_resource *r_scene = scene_resource->scene_data;
+	const struct scene_resource *scene_res = res->scene_data;
 
 	struct child_parent_hierarchy
 	{
@@ -72,35 +74,42 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		entity_t child_ett, parent_ett;
 	};
 
-	struct child_parent_hierarchy *ett_h = 0;
-	array_set_len(arena, ett_h, array_len(r_scene->nodes));
-	for (u32 i = 0; i < array_len(r_scene->nodes); ++i)
+	struct child_parent_hierarchy *child_parent_hierarchy_nodes = 0;
+	array_set_len(arena, child_parent_hierarchy_nodes, array_len(scene_res->nodes));
+	for (u32 i = 0; i < array_len(scene_res->nodes); ++i)
 	{
-		struct scene_node *node = &r_scene->nodes[i];
+		struct scene_node *node = &scene_res->nodes[i];
 
-		component_t archetype = TRANSFORM | WORLD | HIERARCHY;
-		if (node->mesh.size > 0) { archetype |= MESH | MATERIAL | STATIC_BODY; }
+		component_t archetype = TRANSFORM;
+		if (node->mesh.size > 0) { archetype |= MESH | MATERIAL; }
+		if (node->armature.size > 0) { archetype |= ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER; }
+		if (node->prop & NODE_PROP_STATIC_BODY) { archetype |= STATIC_BODY; }
+		if (node->prop & NODE_PROP_RIGID_BODY) { archetype |= RIGID_BODY; }
+		if (node->prop & NODE_PROP_PLAYER) { archetype |= PLAYER; }
 
 		entity_t ett = scene_entity_new(arena, scene, archetype);
+		if (archetype & ARMATURE) { result = ett; }
 
-		ett_h[i].archetype = archetype;
+		child_parent_hierarchy_nodes[i].archetype = archetype;
 
-		ett_h[i].child_ptr = node;
-		ett_h[i].parent_ptr = (node->parent_index > -1) ? &r_scene->nodes[node->parent_index] : 0;
+		child_parent_hierarchy_nodes[i].child_ptr = node;
+		child_parent_hierarchy_nodes[i].parent_ptr =
+		    (node->parent_index > -1) ? &scene_res->nodes[node->parent_index] : 0;
 
-		ett_h[i].child_ett = ett;
-		ett_h[i].parent_ett = (entity_t){INVALID_HANDLE};
+		child_parent_hierarchy_nodes[i].child_ett = ett;
+		child_parent_hierarchy_nodes[i].parent_ett = (entity_t){INVALID_HANDLE};
+		// ett_h[i].transform = scene_component_get_data(scene, ett, TRANSFORM);
 	}
 
-	for (u32 i = 0; i < array_len(ett_h); ++i)
+	for (u32 i = 0; i < array_len(child_parent_hierarchy_nodes); ++i)
 	{
-		struct child_parent_hierarchy *child = &ett_h[i];
+		struct child_parent_hierarchy *child = &child_parent_hierarchy_nodes[i];
 		if (child->parent_ptr == 0) { continue; }
 
-		for (u32 j = 0; j < array_len(ett_h); ++j)
+		for (u32 j = 0; j < array_len(child_parent_hierarchy_nodes); ++j)
 		{
 			if (i == j) { continue; }
-			struct child_parent_hierarchy *parent = &ett_h[j];
+			struct child_parent_hierarchy *parent = &child_parent_hierarchy_nodes[j];
 
 			if (child->parent_ptr == parent->child_ptr)
 			{
@@ -111,117 +120,88 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		assert(child->child_ett.handle != child->parent_ett.handle);
 	}
 
-	for (u32 i = 0; i < array_len(ett_h); ++i)
+	for (u32 i = 0; i < array_len(child_parent_hierarchy_nodes); ++i)
 	{
-		struct child_parent_hierarchy *child = &ett_h[i];
+		struct child_parent_hierarchy *child = &child_parent_hierarchy_nodes[i];
 
 		transform_component *transform = scene_component_get_data(scene, child->child_ett, TRANSFORM);
+		log_trace(str8_from("transform ptr: 0x{u6x}"), transform);
 		{
-			glm_vec3_copy(r_scene->nodes[i].position.data, transform->position.v3.data);
-			transform->position.w = 0.0f;
-			glm_vec3_copy(r_scene->nodes[i].scale.data, transform->scale.data);
-			glm_vec4_copy(r_scene->nodes[i].rotation.data, transform->rotation.data);
+			transform->matrix_local = m4_identity();
+
+			transform->matrix = m4_identity();
+			transform->last_matrix = m4_identity();
+
+			transform->parent_transform = 0;
+			transform->chidren_transform = 0;
+
+			transform->archetype = child->archetype;
+			transform->self = child->child_ett;
+
+			glm_vec3_copy(scene_res->nodes[i].position.data, transform->transform_local.translation.data);
+			glm_vec4_copy(scene_res->nodes[i].rotation.data, transform->transform_local.rotation.data);
+
+			v3 scale;
+			scale.x = (scene_res->nodes[i].scale.x == 0.0f) ? GLM_FLT_EPSILON : scene_res->nodes[i].scale.x;
+			scale.y = (scene_res->nodes[i].scale.y == 0.0f) ? GLM_FLT_EPSILON : scene_res->nodes[i].scale.y;
+			scale.z = (scene_res->nodes[i].scale.z == 0.0f) ? GLM_FLT_EPSILON : scene_res->nodes[i].scale.z;
+
+			glm_vec3_copy(scale.data, transform->transform_local.scale.data);
+
+			transform_update_tree(transform);
 
 			transform->flags = TRANSFORM_FLAG_DIRTY;
-		}
-
-		world_component *world = scene_component_get_data(scene, child->child_ett, WORLD);
-		{
-			world->matrix = m4_identity();
-			world->last_matrix = m4_identity();
-		}
-
-		hierarchy_component *hierarchy = scene_component_get_data(scene, child->child_ett, HIERARCHY);
-		{
-			hierarchy->parent = child->parent_ett;
 		}
 
 		if ((child->archetype & (MATERIAL | MESH)) != (MATERIAL | MESH)) { continue; }
 
 		material_component *material = scene_component_get_data(scene, child->child_ett, MATERIAL);
 		{
-			if (r_scene->nodes[i].material.size > 0)
+			struct resource *material_res = 0;
+
+			if (scene_res->nodes[i].material.size > 0)
 			{
-				struct resource *material_resource = resource_get_by_name(r_scene->nodes[i].material);
-				material->resource_ref = resource_make_reference(material_resource);
-				material->material_ref = material->resource_ref->material_data;
+				material_res = resource_get_by_name(scene_res->nodes[i].material);
+
+				if (material_res->material_data->image.size > 0)
+				{
+					renderer_texture_add(material_res->material_data->image);
+				}
 			}
+			else { material_res = resource_get_default_material(); }
+
+			material->resource_ref = resource_make_reference(material_res);
+			material->material_ref = material->resource_ref->material_data;
 		}
 
 		mesh_component *mesh = scene_component_get_data(scene, child->child_ett, MESH);
 		{
-			assert(r_scene->nodes[i].mesh.size > 0);
-			struct resource *mesh_resource = resource_get_by_name(r_scene->nodes[i].mesh);
-			mesh->resource_ref = resource_make_reference(mesh_resource);
+			assert(scene_res->nodes[i].mesh.size > 0);
+			struct resource *mesh_res = resource_get_by_name(scene_res->nodes[i].mesh);
+			mesh->resource_ref = resource_make_reference(mesh_res);
 			mesh->mesh_ref = mesh->resource_ref->mesh_data;
 		}
-		static_body_component *static_body = scene_component_get_data(scene, child->child_ett, STATIC_BODY);
+		if ((child->archetype & STATIC_BODY))
 		{
+			static_body_component *static_body =
+			    scene_component_get_data(scene, child->child_ett, STATIC_BODY);
 			static_body->enabled = true;
 		}
-	}
 
-	array_release(arena, ett_h);
-}
-
-#if 0
-entity_t
-scene_load_animated(struct arena *arena, struct scene *scene, str8 name)
-{
-	entity_t result = (entity_t){INVALID_HANDLE};
-
-	const struct scene_resource *r_scene = load_animated_model_gltf(name);
-
-	for (u32 i = 0; i < array_len(r_scene->nodes); ++i)
-	{
-		assert(r_scene->nodes[i].armature_ref);
-		assert(r_scene->nodes[i].material_ref);
-		assert(r_scene->nodes[i].mesh_ref);
-		assert(array_len(r_scene->nodes) == 1); // Only one for now. TODO
-
-		component_t archetype =
-		    TRANSFORM | WORLD | HIERARCHY | MESH | MATERIAL | ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER;
-		entity_t ett = scene_entity_new(arena, scene, archetype);
-		result = ett;
-
-		transform_component *transform = scene_component_get_data(scene, ett, TRANSFORM);
+		if ((child->archetype & (ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER)) !=
+		    (ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER))
 		{
-			glm_vec3_copy(r_scene->nodes[i].position.data, transform->position.v3.data);
-			transform->position.w = 0.0f;
-			glm_vec3_copy(r_scene->nodes[i].scale.data, transform->scale.data);
-			glm_vec4_copy(r_scene->nodes[i].rotation.data, transform->rotation.data);
-
-			transform->flags = TRANSFORM_FLAG_DIRTY;
-		}
-		world_component *world = scene_component_get_data(scene, ett, WORLD);
-		{
-			world->matrix = m4_identity();
-			world->last_matrix = m4_identity();
-		}
-		hierarchy_component *hierarchy = scene_component_get_data(scene, ett, HIERARCHY);
-		{
-			hierarchy->parent = (entity_t){INVALID_HANDLE};
+			continue;
 		}
 
-		material_component *material = scene_component_get_data(scene, ett, MATERIAL);
+		armature_component *armature = scene_component_get_data(scene, child->child_ett, ARMATURE);
 		{
-			material->material_ref = 0;
-			material->material_ref = resource_material_make_reference(r_scene->nodes[i].material_ref);
+			struct resource *armature_res = resource_get_by_name(scene_res->nodes[i].armature);
+			armature->resource_ref = resource_make_reference(armature_res);
+			armature->armature_ref = armature->resource_ref->armature_data;
 		}
 
-		mesh_component *mesh = scene_component_get_data(scene, ett, MESH);
-		{
-			mesh->mesh_ref = 0;
-			mesh->mesh_ref = resource_mesh_make_reference(r_scene->nodes[i].mesh_ref);
-		}
-
-		armature_component *armature = scene_component_get_data(scene, ett, ARMATURE);
-		{
-			armature->armature_ref = 0;
-			armature->armature_ref = resource_armature_make_reference(r_scene->nodes[i].armature_ref);
-		}
-
-		pose_component *current = scene_component_get_data(scene, ett, POSE);
+		pose_component *current = scene_component_get_data(scene, child->child_ett, POSE);
 		{
 			current->parents = 0;
 			current->joints = 0;
@@ -229,22 +209,42 @@ scene_load_animated(struct arena *arena, struct scene *scene, str8 name)
 			pose_copy(arena, current, rest);
 		}
 
-		clip_component *clip = scene_component_get_data(scene, ett, CLIP);
+		clip_component *clip = scene_component_get_data(scene, child->child_ett, CLIP);
 		{
 			clip->next_clip_ref = 0;
 			clip->current_clip_ref = 0;
 			clip->time = 0.0f;
 		}
 
-		cross_fade_controller_component *cfc = scene_component_get_data(scene, ett, CROSS_FADE_CONTROLLER);
+		cross_fade_controller_component *cfc =
+		    scene_component_get_data(scene, child->child_ett, CROSS_FADE_CONTROLLER);
 		{
 			cfc->targets = 0;
 		}
 	}
 
-	return (result);
+	for (u32 i = 0; i < array_len(child_parent_hierarchy_nodes); ++i)
+	{
+		struct child_parent_hierarchy *child = &child_parent_hierarchy_nodes[i];
+		if (child->parent_ett.handle)
+		{
+			transform_component *self = scene_component_get_data(scene, child->child_ett, TRANSFORM);
+			{
+				transform_component *parent =
+				    scene_component_get_data(scene, child->parent_ett, TRANSFORM);
+				transform_set_parent(arena, self, parent);
+
+				transform_update_tree(self);
+
+				self->flags = TRANSFORM_FLAG_DIRTY;
+			}
+		}
+	}
+
+	array_release(arena, child_parent_hierarchy_nodes);
+
+	return result;
 }
-#endif
 
 entity_t
 scene_set_main_camera(struct scene *scene, entity_t camera_entity)
@@ -392,9 +392,8 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 	assert(handle_valid(&scene->indirect_handle_pool, entity.handle));
 
 	const u32 indirect_index = handle_index(entity.handle);
-	;
 	const component_t old_archetype = scene->indirect_access[indirect_index].archetype;
-	;
+
 	const handle_t old_handle = scene->indirect_access[indirect_index].handle;
 	const u32 old_component_pool_index = scene->indirect_access[indirect_index].component_pool_index;
 
@@ -436,6 +435,8 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 	}
 	assert(new_handle != INVALID_HANDLE);
 
+	u32 new_index = handle_index(new_handle);
+	u32 old_index = handle_index(old_handle);
 	struct component_pool *old_comp_pool = &scene->component_handle_pool[old_component_pool_index];
 	struct component_pool *new_comp_pool =
 	    &scene->component_handle_pool[scene->indirect_access[indirect_index].component_pool_index];
@@ -452,11 +453,9 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 			struct component_view *new_view = &new_comp_pool->view[cmp_index];
 			assert(old_view->id == new_view->id);
 
-			u32 new_index = handle_index(new_handle);
 			assert(new_index < new_comp_pool->handle_pool.cap);
 			void *dest = (u8 *)new_comp_pool->data + (new_index * new_comp_pool->size) + new_view->offset;
 
-			u32 old_index = handle_index(old_handle);
 			assert(old_index < old_comp_pool->handle_pool.cap);
 			void *src = (u8 *)old_comp_pool->data + (old_index * old_comp_pool->size) + old_view->offset;
 
@@ -464,7 +463,8 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 		}
 	}
 
-	component_pool_handle_remove(old_comp_pool, old_handle);
+	handle_remove(&old_comp_pool->handle_pool, old_handle);
+	memset((u8 *)old_comp_pool->data + (old_index * old_comp_pool->size), 0x0, old_comp_pool->size);
 }
 
 void *

@@ -10,105 +10,49 @@
 #include "math/smShape.h"
 
 #include "animation/smAnimation.h"
+#include "audio/smAudio.h"
+#include "effects/smShake.h"
 #include "renderer/smRenderer.h"
 
 entity_t player_ett;
-entity_t sphere_ett;
-entity_t player_ett2;
-entity_t sphere_ett2;
 
-intersect_result
+struct intersect_result
 rigid_body_intersects(struct scene *scene, rigid_body_component *rb)
 {
-	intersect_result result = {0};
+	struct intersect_result best_result = {0};
 
-	aabb rb_aabb;
+	struct scene_iter iter = scene_iter_begin(scene, TRANSFORM | MESH | STATIC_BODY);
 
-	switch (rb->collision_shape)
-	{
-	case RIGID_BODY_COLLISION_SHAPE_SPHEPE: rb_aabb = shape_get_aabb_sphere(rb->sphere); break;
-	case RIGID_BODY_COLLISION_SHAPE_CAPSULE: rb_aabb = shape_get_aabb_capsule(rb->capsule); break;
-	default: return (result);
-	};
-
-	u32 alloca_index = 0;
-	const u32 MAX_RESULTS = 128;
-	intersect_result *results = alloca(MAX_RESULTS * sizeof(intersect_result));
-
-	struct scene_iter iter = scene_iter_begin(scene, WORLD | MESH | STATIC_BODY);
-
+	u32 next = 0;
 	while (scene_iter_next(scene, &iter))
 	{
 		static_body_component *static_body = scene_iter_get_component(&iter, STATIC_BODY);
 		if (!static_body->enabled) { continue; }
 
-		world_component *world = scene_iter_get_component(&iter, WORLD);
+		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
 		mesh_component *mesh = scene_iter_get_component(&iter, MESH);
-
-		const mesh_resource *mesh_ref = mesh->mesh_ref;
-
-		aabb mesh_aabb = mesh_ref->aabb;
-
-		glm_mat4_mulv3(world->matrix.data, mesh_aabb.max.data, 1.0f, mesh_aabb.max.data);
-		glm_mat4_mulv3(world->matrix.data, mesh_aabb.min.data, 1.0f, mesh_aabb.min.data);
-
-		if (!collision_aabbs(rb_aabb, mesh_aabb)) { continue; }
-
-		// TODO: support for vertex array without indices
-		assert(array_len(mesh_ref->indices));
-		for (u32 index = 0; index < array_len(mesh_ref->indices); index += 3)
+		struct intersect_result result;
+		switch (rb->collision_shape)
 		{
-			triangle triangle;
-			intersect_result result = {0};
+		case RB_SHAPE_CAPSULE: result = collision_capsule_mesh(rb->capsule, mesh, transform); break;
+		case RB_SHAPE_SPHERE: result = collision_sphere_mesh(rb->sphere, mesh, transform); break;
+		default: sm__unreachable();
+		}
 
-			glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 0]].data, triangle.p0.data);
-			glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 1]].data, triangle.p1.data);
-			glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 2]].data, triangle.p2.data);
-
-			glm_mat4_mulv3(world->matrix.data, triangle.p0.data, 1.0f, triangle.p0.data);
-			glm_mat4_mulv3(world->matrix.data, triangle.p1.data, 1.0f, triangle.p1.data);
-			glm_mat4_mulv3(world->matrix.data, triangle.p2.data, 1.0f, triangle.p2.data);
-
-			aabb triangle_aabb = shape_get_aabb_triangle(triangle);
-			if (!collision_aabbs(rb_aabb, triangle_aabb)) continue;
-
-			switch (rb->collision_shape)
-			{
-			case RIGID_BODY_COLLISION_SHAPE_SPHEPE:
-				collision_sphere_triangle(rb->sphere, triangle, world, &result);
-				break;
-			case RIGID_BODY_COLLISION_SHAPE_CAPSULE:
-				collision_capsule_triangle(rb->capsule, triangle, world, &result);
-				break;
-			default: sm__unreachable();
-			};
-
-			if (result.valid)
-			{
-				assert(alloca_index < MAX_RESULTS);
-				results[alloca_index++] = result;
-			}
+		if (result.valid)
+		{
+			if ((!best_result.valid) || (result.depth > best_result.depth)) { best_result = result; }
 		}
 	}
 
-	intersect_result best_result = {0};
-	if (alloca_index)
-	{
-		best_result = results[0];
-		for (u32 i = 1; i < alloca_index; ++i)
-		{
-			if (results[i].depth > best_result.depth) { best_result = results[i]; }
-		}
-	}
-
-	return best_result;
+	return (best_result);
 }
 
 void
 rigid_body_handle_capsule(
     struct scene *scene, sm__maybe_unused struct ctx *ctx, rigid_body_component *rb, transform_component *transform)
 {
-	v3 position = transform->position.v3;
+	v3 position = transform->transform_local.translation.v3;
 	v3 c;
 	glm_vec3_sub(rb->capsule.tip.data, rb->capsule.base.data, c.data);
 	f32 height = glm_vec3_norm(c.data);
@@ -125,30 +69,32 @@ rigid_body_handle_capsule(
 
 		v3 tip;
 		glm_vec3_add(position.data, v3_new(0.0f, height, 0.0f).data, tip.data);
-		rb->capsule = (capsule){.base = position, .tip = tip, radius};
+		rb->capsule = (struct capsule){.base = position, .tip = tip, radius};
 
-		intersect_result result = rigid_body_intersects(scene, rb);
-		if (!result.valid) continue;
+		struct intersect_result result = rigid_body_intersects(scene, rb);
+		if (!result.valid) { continue; }
 
 		v3 r_norm;
 		glm_vec3_copy(result.normal.data, r_norm.data);
 
-		f32 velocityLen = glm_vec3_norm(rb->velocity.data);
+		f32 capsule_mag = glm_vec3_norm(rb->velocity.data);
 
-		v3 velocity_norm;
-		glm_vec3_normalize_to(rb->velocity.data, velocity_norm.data);
+		v3 capsule_direction;
+		glm_vec3_normalize_to(rb->velocity.data, capsule_direction.data);
 
 		v3 undesired_motion;
-		glm_vec3_scale(r_norm.data, glm_vec3_dot(velocity_norm.data, r_norm.data), undesired_motion.data);
+		f32 scale = glm_vec3_dot(capsule_direction.data, r_norm.data);
+		glm_vec3_scale(r_norm.data, scale, undesired_motion.data);
 
 		v3 desired_motion;
-		glm_vec3_sub(velocity_norm.data, undesired_motion.data, desired_motion.data);
+		glm_vec3_sub(capsule_direction.data, undesired_motion.data, desired_motion.data);
 
-		glm_vec3_scale(desired_motion.data, velocityLen, rb->velocity.data);
+		glm_vec3_scale(desired_motion.data, capsule_mag, rb->velocity.data);
 
 		// Remove penetration (penetration epsilon added to handle infinitely small penetration)
 		v3 penetration;
-		glm_vec3_scale(r_norm.data, result.depth + 0.0001f, penetration.data);
+
+		glm_vec3_scale(r_norm.data, result.depth + GLM_FLT_EPSILON, penetration.data);
 		glm_vec3_add(position.data, penetration.data, position.data);
 	}
 
@@ -169,10 +115,10 @@ rigid_body_handle_capsule(
 
 				v3 tip;
 				glm_vec3_add(position.data, v3_new(0.0f, height, 0.0f).data, tip.data);
-				rb->capsule = (capsule){.base = position, .tip = tip, radius};
+				rb->capsule = (struct capsule){.base = position, .tip = tip, radius};
 
-				intersect_result result = rigid_body_intersects(scene, rb);
-				if (!result.valid) continue;
+				struct intersect_result result = rigid_body_intersects(scene, rb);
+				if (!result.valid) { continue; }
 
 				// Remove penetration (penetration epsilon added to handle infinitely
 				// small penetration):
@@ -192,23 +138,25 @@ rigid_body_handle_capsule(
 		}
 	}
 
-	const f32 GROUND_FRICTION = 0.55f;
-	const f32 AIR_FRICTION = 0.58f;
+	const f32 GROUND_FRICTION = 0.7;
+	const f32 AIR_FRICTION = 0.62;
 	if (ground_intersect) { glm_vec3_scale(rb->velocity.data, GROUND_FRICTION, rb->velocity.data); }
 	else { glm_vec3_scale(rb->velocity.data, AIR_FRICTION, rb->velocity.data); }
 
 	v3 sub;
-	v3 original_position = transform->position.v3;
+	v3 original_position = transform->transform_local.translation.v3;
 	glm_vec3_sub(position.data, original_position.data, sub.data);
-	glm_vec3_add(transform->position.v3.data, sub.data, transform->position.v3.data);
-	transform_set_dirty(transform, true);
+	transform_translate(transform, sub);
+	// glm_vec3_add(
+	//     transform->transform_local.position.v3.data, sub.data, transform->transform_local.position.v3.data);
+	// transform_set_dirty(transform, true);
 }
 
 void
 rigid_body_handle_sphere(
     struct scene *scene, sm__maybe_unused struct ctx *ctx, rigid_body_component *rb, transform_component *transform)
 {
-	v3 position = transform->position.v3;
+	v3 position = transform->transform_local.translation.v3;
 	f32 radius = rb->sphere.radius;
 
 	b8 ground_intersect = false;
@@ -222,13 +170,13 @@ rigid_body_handle_sphere(
 
 		rb->sphere.center = position;
 
-		intersect_result result = rigid_body_intersects(scene, rb);
-		if (!result.valid) continue;
+		struct intersect_result result = rigid_body_intersects(scene, rb);
+		if (!result.valid) { continue; }
 
 		v3 r_norm;
 		glm_vec3_copy(result.normal.data, r_norm.data);
 
-		f32 velocityLen = glm_vec3_norm(rb->velocity.data);
+		f32 velocity_len = glm_vec3_norm(rb->velocity.data);
 
 		v3 velocity_norm;
 		glm_vec3_normalize_to(rb->velocity.data, velocity_norm.data);
@@ -239,7 +187,7 @@ rigid_body_handle_sphere(
 		v3 desired_motion;
 		glm_vec3_sub(velocity_norm.data, undesired_motion.data, desired_motion.data);
 
-		glm_vec3_scale(desired_motion.data, velocityLen, rb->velocity.data);
+		glm_vec3_scale(desired_motion.data, velocity_len, rb->velocity.data);
 
 		// Remove penetration (penetration epsilon added to handle infinitely small penetration)
 		v3 penetration;
@@ -263,10 +211,11 @@ rigid_body_handle_sphere(
 
 				rb->sphere.center = position;
 
-				intersect_result result = rigid_body_intersects(scene, rb);
-				if (!result.valid) continue;
+				struct intersect_result result = rigid_body_intersects(scene, rb);
+				if (!result.valid) { continue; }
 
-				// Remove penetration (penetration epsilon added to handle infinitely small penetration)
+				// Remove penetration (penetration epsilon added to handle infinitely small
+				// penetration)
 				v3 penetration;
 				glm_vec3_scale(result.normal.data, result.depth + 0.0001f, penetration.data);
 				glm_vec3_add(position.data, penetration.data, position.data);
@@ -282,16 +231,17 @@ rigid_body_handle_sphere(
 		}
 	}
 
-	const f32 GROUND_FRICTION = 1.5f;
-	const f32 AIR_FRICTION = 1.48f;
+	const f32 GROUND_FRICTION = 0.7;
+	const f32 AIR_FRICTION = 0.62;
 	if (ground_intersect) { glm_vec3_scale(rb->velocity.data, GROUND_FRICTION, rb->velocity.data); }
 	else { glm_vec3_scale(rb->velocity.data, AIR_FRICTION, rb->velocity.data); }
 
 	v3 sub;
-	v3 original_position = transform->position.v3;
+	v3 original_position = transform->transform_local.translation.v3;
 	glm_vec3_sub(position.data, original_position.data, sub.data);
-	glm_vec3_add(transform->position.v3.data, sub.data, transform->position.v3.data);
-	transform_set_dirty(transform, true);
+	transform_translate(transform, sub);
+	// glm_vec3_add(transform->transform_local.position.v3.data, sub.data, transform->position.v3.data);
+	// transform_set_dirty(transform, true);
 }
 
 b8
@@ -306,10 +256,245 @@ scene_rigid_body_update(
 
 		switch (rb->collision_shape)
 		{
-		case RIGID_BODY_COLLISION_SHAPE_CAPSULE: rigid_body_handle_capsule(scene, ctx, rb, transform); break;
-		case RIGID_BODY_COLLISION_SHAPE_SPHEPE: rigid_body_handle_sphere(scene, ctx, rb, transform); break;
+		case RB_SHAPE_CAPSULE: rigid_body_handle_capsule(scene, ctx, rb, transform); break;
+		case RB_SHAPE_SPHERE: rigid_body_handle_sphere(scene, ctx, rb, transform); break;
 		default: sm__unreachable();
 		};
+
+		glm_vec3_clamp(rb->velocity.data, -16.0f, 16.0f);
+	}
+
+	return (true);
+}
+
+static v3
+random_point_inside_aabb(struct aabb aabb)
+{
+	v3 result;
+
+	result.x = f32_min_max(aabb.min.x, aabb.max.x);
+	result.y = f32_min_max(aabb.min.y, aabb.max.y);
+	result.z = f32_min_max(aabb.min.z, aabb.max.z);
+
+	return (result);
+}
+
+static v3
+random_point_inside_cube(trs cube)
+{
+	v3 result;
+
+	f32 min_x = cube.scale.x * -0.5f;
+	f32 min_y = cube.scale.y * -0.5f;
+	f32 min_z = cube.scale.z * -0.5f;
+
+	result.x = f32_min_max(min_x, -min_x);
+	result.y = f32_min_max(min_y, -min_y);
+	result.z = f32_min_max(min_z, -min_z);
+
+	return (result);
+}
+
+b8
+scene_particle_emitter_update(
+    struct arena *arena, struct scene *scene, sm__maybe_unused struct ctx *ctx, sm__maybe_unused void *user_data)
+{
+	struct scene_iter iter = scene_iter_begin(scene, TRANSFORM | PARTICLE_EMITTER);
+	while (scene_iter_next(scene, &iter))
+	{
+		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
+		particle_emitter_component *pe = scene_iter_get_component(&iter, PARTICLE_EMITTER);
+
+#if defined(PARTICLE_USE_POOL)
+
+		for (u32 i = 0; i < pe->pool_size; ++i)
+		{
+			struct particle *p = &pe->particles_pool[i];
+			p->energy_remaing -= ctx->fixed_dt;
+			if (p->energy_remaing > 0.0f)
+			{
+				v3 velocity;
+				glm_vec3_scale(p->velocity.data, ctx->fixed_dt, velocity.data);
+				glm_vec3_add(p->position.data, velocity.data, p->position.data);
+			}
+		}
+
+		u32 last_free_particle_index = 0;
+		for (u32 rate = 0; (rate < pe->emission_rate) && (last_free_particle_index < pe->pool_size); ++rate)
+		{
+			for (u32 i = last_free_particle_index; i < pe->pool_size; ++i)
+			{
+				struct particle *p = &pe->particles_pool[i];
+				if (p->energy_remaing > 0.0f) { continue; }
+
+				last_free_particle_index = i;
+
+				v3 position;
+				switch (pe->shape_type)
+				{
+				case EMISSION_SHAPE_AABB:
+					{
+						struct aabb aabb;
+						glm_aabb_transform(pe->box.data, transform->matrix.data, aabb.data);
+						position = random_point_inside_aabb(aabb);
+					}
+					break;
+				case EMISSION_SHAPE_CUBE:
+					{
+						position = random_point_inside_cube(pe->cube);
+						glm_mat4_mulv3(
+						    transform->matrix.data, position.data, 1.0f, position.data);
+						// trs t = trs_from_m4(transform->matrix);
+						// position = trs_point(t, position);
+					}
+					break;
+				default: position = v3_zero(); break;
+				}
+
+				// glm_mat4_mulv3(transform->matrix.data, position.data, 1.0f, position.data);
+				p->position = position;
+
+				p->color_begin = color_from_hex(u32_prng() | 0x000000FF);
+				p->color_end = color_from_hex(u32_prng() & 0xFFFFFF00);
+
+				p->velocity = v3_new(0, (f32_range01() + 1) * 5, 0);
+
+				p->energy = f32_min_max(0.2f, 0.7f);
+				p->energy_remaing = p->energy;
+			}
+		}
+
+#else
+		struct particle *p, *next;
+		for (p = pe->active_sentinel.next, next = 0; p != &pe->active_sentinel; p = next)
+		{
+			next = p->next;
+
+			p->energy_remaing -= ctx->fixed_dt;
+			if (p->energy_remaing > 0.0f)
+			{
+				v3 velocity;
+				glm_vec3_scale(p->velocity.data, ctx->fixed_dt, velocity.data);
+				glm_vec3_add(p->position.data, velocity.data, p->position.data);
+			}
+			else
+			{
+				dll_remove(p);
+				dll_insert(&pe->free_sentinel, p);
+			}
+		}
+
+		if (!pe->enable) { continue; }
+
+		u32 rate;
+		for (p = pe->free_sentinel.next, next = 0, rate = 0;
+		     (p != &pe->free_sentinel && rate < pe->emission_rate); p = next, ++rate)
+		{
+			next = p->next;
+			dll_remove(p);
+			dll_insert(&pe->active_sentinel, p);
+
+			v3 position;
+
+			switch (pe->shape_type)
+			{
+			case EMISSION_SHAPE_AABB:
+				{
+					struct aabb aabb;
+					glm_aabb_transform(pe->box.data, transform->matrix.data, aabb.data);
+					position = random_point_inside_aabb(aabb);
+				}
+				break;
+			case EMISSION_SHAPE_CUBE:
+				{
+					position = random_point_inside_cube(pe->cube);
+					glm_mat4_mulv3(transform->matrix.data, position.data, 1.0f, position.data);
+					// trs t = trs_from_m4(transform->matrix);
+					// position = trs_point(t, position);
+				}
+				break;
+			default: position = v3_zero(); break;
+			}
+
+			// glm_mat4_mulv3(transform->matrix.data, position.data, 1.0f, position.data);
+			p->position = position;
+
+			p->color_begin = color_from_hex(u32_prng() | 0x000000FF);
+			p->color_end = color_from_hex(u32_prng() & 0xFFFFFF00);
+
+			p->velocity = v3_new(0, (f32_range01() + 1) * 5, 0);
+
+			p->energy = f32_min_max(0.2f, 0.7f);
+			p->energy_remaing = p->energy;
+		}
+#endif
+	}
+
+	return (true);
+}
+
+b8
+scene_particle_emitter_sort_update(sm__maybe_unused struct arena *arena, sm__maybe_unused struct scene *scene,
+    sm__maybe_unused struct ctx *ctx, sm__maybe_unused void *user_data)
+{
+	entity_t main_camera_entity = scene_get_main_camera(scene);
+	transform_component *camera_transform = scene_component_get_data(scene, main_camera_entity, TRANSFORM);
+	v3 camera_position = camera_transform->matrix.v3.position;
+
+	struct scene_iter iter = scene_iter_begin(scene, TRANSFORM | PARTICLE_EMITTER);
+
+	while (scene_iter_next(scene, &iter))
+	{
+		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
+		particle_emitter_component *pe = scene_iter_get_component(&iter, PARTICLE_EMITTER);
+
+#if defined(PARTICLE_USE_POOL)
+		for (u32 i = 0; i < pe->pool_size; ++i)
+		{
+			struct particle *p1 = &pe->particles_pool[i];
+			f32 p1_distance = glm_vec3_distance2(p1->position.data, camera_position.data);
+			for (u32 j = i + 1; j < pe->pool_size; ++j)
+			{
+				struct particle *p2 = &pe->particles_pool[j];
+				if (p1->energy_remaing <= 0.0f)
+				{
+					*p1 = *p2;
+					p2->energy_remaing = 0.0f;
+					continue;
+				}
+
+				f32 p2_distance = glm_vec3_distance2(p2->position.data, camera_position.data);
+				if (p2_distance < p1_distance)
+				{
+					struct particle p_swap = *p1;
+					*p1 = *p2;
+					*p2 = p_swap;
+				}
+			}
+		}
+
+#else
+		struct particle *p = 0, *i = 0, *next = 0;
+		for (p = pe->active_sentinel.next; p != &pe->active_sentinel; p = next)
+		{
+			next = p->next;
+
+			// TODO: particle position in world space
+
+			// TODO: swap particles instead of using double linked list. Its better for the cache
+
+			// squared distance between the particle and the camera
+			f32 particle_distance = glm_vec3_distance2(p->position.data, camera_position.data);
+			for (i = next; i != &pe->active_sentinel; i = i->next)
+			{
+				if (particle_distance < glm_vec3_distance2(i->position.data, camera_position.data))
+				{
+					dll_remove(p);
+					dll_insert(i, p);
+				}
+			}
+		}
+#endif
 	}
 
 	return (true);
@@ -332,56 +517,409 @@ scene_mesh_calculate_aabb_update(
 	return (true);
 }
 
+static struct shake shake;
+
+void
+camera_focus_on_selected_entity(
+    struct scene *scene, camera_component *cam, transform_component *camera_transform, sm__maybe_unused struct ctx *ctx)
+{
+	if (cam->free.focus_entity.handle)
+	{
+		transform_component *target_transform =
+		    scene_component_get_data(scene, cam->free.focus_entity, TRANSFORM);
+
+		v3 target_position = target_transform->matrix.v3.position;
+		v3 camera_position = camera_transform->matrix.v3.position;
+
+		cam->free.lerp_to_target_position = target_position;
+
+		v3 target_direction;
+		glm_vec3_sub(cam->free.lerp_to_target_position.data, camera_position.data, target_direction.data);
+		glm_vec3_normalize(target_direction.data);
+
+		if (scene_entity_has_components(scene, cam->free.focus_entity, MESH))
+		{
+			mesh_component *mesh = scene_component_get_data(scene, cam->free.focus_entity, MESH);
+			struct aabb aabb;
+			glm_aabb_transform(mesh->mesh_ref->aabb.data, target_transform->matrix.data, aabb.data);
+
+			v3 extents;
+			glm_vec3_sub(aabb.max.data, aabb.min.data, extents.data);
+			glm_vec3_scale(extents.data, 0.5f, extents.data);
+
+			glm_vec3_scale(target_direction.data, glm_vec3_norm(extents.data), target_direction.data);
+			glm_vec3_scale(target_direction.data, 2, target_direction.data);
+
+			glm_vec3_sub(cam->free.lerp_to_target_position.data, target_direction.data,
+			    cam->free.lerp_to_target_position.data);
+		}
+		else
+		{
+			glm_vec3_sub(cam->free.lerp_to_target_position.data, target_direction.data,
+			    cam->free.lerp_to_target_position.data);
+		}
+
+		v3 direction;
+		glm_vec3_sub(cam->free.lerp_to_target_position.data, target_position.data, direction.data);
+		glm_quat_for(direction.data, v3_up().data, cam->free.lerp_to_target_rotation.data);
+		glm_quat_normalize(cam->free.lerp_to_target_rotation.data);
+
+		f32 dist = glm_vec3_distance(cam->free.lerp_to_target_position.data, camera_position.data);
+		cam->free.lerp_to_target_distance = dist;
+
+		v4 target_rotation, camera_rotation;
+		glm_quat_normalize_to(cam->free.lerp_to_target_rotation.data, target_rotation.data);
+
+		glm_mat4_quat(camera_transform->matrix.data, camera_rotation.data);
+		glm_quat_normalize(camera_rotation.data);
+
+		f32 lerp_angle = acosf(glm_quat_dot(target_rotation.data, camera_rotation.data));
+		lerp_angle = glm_deg(lerp_angle);
+
+		cam->free.lerp_to_target_p = cam->free.lerp_to_target_distance > 0.1f;
+		cam->free.lerp_to_target_r = lerp_angle > 1.0f;
+	}
+}
+
+void
+camera_lerp_to_entity(
+    struct scene *scene, camera_component *cam, transform_component *camera_transform, sm__maybe_unused struct ctx *ctx)
+{
+	// Set focused entity as a lerp target
+	if (core_key_pressed_lock(KEY_F, 60)) { camera_focus_on_selected_entity(scene, cam, camera_transform, ctx); }
+
+	// Lerp
+	if (cam->free.lerp_to_target_p || cam->free.lerp_to_target_r)
+	{
+		// Lerp duration in seconds
+		// 2.0 seconds + [0.0 - 2.0] seconds based on distance
+		// Something is not right with the duration...
+		f32 lerp_duration = 2.0f + glm_clamp(cam->free.lerp_to_target_distance * 0.01f, 0.0f, 2.0f);
+
+		// Alpha
+		cam->free.lerp_to_target_alpha += (ctx->dt) / lerp_duration;
+
+		// Position
+		if (cam->free.lerp_to_target_p)
+		{
+			v3 interpolated_position;
+			glm_vec3_lerp(camera_transform->matrix.v3.position.data, cam->free.lerp_to_target_position.data,
+			    cam->free.lerp_to_target_alpha, interpolated_position.data);
+
+			transform_set_position(camera_transform, interpolated_position);
+		}
+
+		// Rotation
+		if (cam->free.lerp_to_target_r)
+		{
+			v4 interpolated_rotation;
+
+			v4 q;
+			glm_mat4_quat(camera_transform->matrix.data, q.data);
+
+			f32 amount = glm_clamp_zo(cam->free.lerp_to_target_alpha);
+			glm_quat_lerp(
+			    q.data, cam->free.lerp_to_target_rotation.data, amount, interpolated_rotation.data);
+
+			transform_set_rotation(camera_transform, interpolated_rotation);
+		}
+
+		// If the lerp has completed or the user has initiated fps control, stop lerping.
+		if (cam->free.lerp_to_target_alpha >= 1.0f || cam->free.is_controlled_by_keyboard_mouse)
+		{
+			cam->free.lerp_to_target_p = false;
+			cam->free.lerp_to_target_r = false;
+			cam->free.lerp_to_target_alpha = 0.0f;
+			cam->free.lerp_to_target_position = v3_zero();
+		}
+	}
+}
+
+void
+scene_camera_update_input(
+    struct scene *scene, camera_component *camera, transform_component *transform, sm__maybe_unused struct ctx *ctx)
+{
+	v2 offset = core_get_cursor_offset();
+	offset.y = -offset.y;
+	f32 wheel = core_get_scroll();
+	if (camera->flags & CAMERA_FLAG_FREE)
+	{
+		// Detect if fps control should be activated
+		{
+			// Initiate control only when the mouse is within the viewport
+			if (core_button_pressed(MOUSE_BUTTON_LEFT) && core_is_cursor_in_window())
+			{
+				camera->free.is_controlled_by_keyboard_mouse = true;
+			}
+
+			// Maintain control as long as the right click is pressed and initial control has been
+			// given
+			camera->free.is_controlled_by_keyboard_mouse =
+			    core_button_pressed(MOUSE_BUTTON_LEFT) && camera->free.is_controlled_by_keyboard_mouse;
+		}
+
+		{
+			// Toggle mouse cursor and adjust mouse position
+			if (camera->free.is_controlled_by_keyboard_mouse && !core_is_cursor_hidden())
+			{
+				camera->free.mouse_last_position = core_get_window_cursor_position();
+				core_hide_cursor();
+			}
+			else if (!camera->free.is_controlled_by_keyboard_mouse && core_is_cursor_hidden())
+			{
+				core_set_cursor_pos(camera->free.mouse_last_position);
+				core_show_cursor();
+			}
+		}
+
+		v3 movement_direction = v3_zero();
+		const float movement_acceleration = 1.0f;
+		const f32 movement_speed_max = 5.0f;
+		const f32 movement_drag = 10.0f;
+
+		if (camera->free.is_controlled_by_keyboard_mouse)
+		{
+			// Wrap around left and right screen edges (to allow for infinite scrolling)
+			{
+				uint32_t edge_padding = 5;
+				v2 mouse_position = core_get_screen_cursor_position();
+				if (mouse_position.x >= 1359 - edge_padding)
+				{
+					mouse_position.x = edge_padding + 1;
+					core_set_cursor_pos(mouse_position);
+				}
+				else if (mouse_position.x <= edge_padding)
+				{
+					mouse_position.x = 1359 - edge_padding - 1;
+					core_set_cursor_pos(mouse_position);
+				}
+			}
+
+			// Get camera rotation.
+			v4 q;
+			glm_mat4_quat(transform->matrix.data, q.data);
+			v3 angles = quat_to_euler_angles(q);
+
+			camera->free.first_person_rotation.x = glm_deg(angles.yaw);
+			camera->free.first_person_rotation.y = glm_deg(angles.pitch);
+
+			f32 mouse_sensitivity = 0.2f;
+
+			v2 mouse_delta;
+			glm_vec2_scale(offset.data, -1 * mouse_sensitivity, mouse_delta.data);
+
+			f32 mouse_smoothing = 0.5f;
+			glm_vec2_lerp(camera->free.mouse_smoothed.data, mouse_delta.data,
+			    glm_clamp_zo(1.0f - mouse_smoothing), camera->free.mouse_smoothed.data);
+
+			glm_vec2_add(camera->free.first_person_rotation.data, camera->free.mouse_smoothed.data,
+			    camera->free.first_person_rotation.data);
+
+			// clamp rotation along the x-axis (but not exactly at 90 degrees, this is to avoid a
+			// gimbal lock).
+			camera->free.first_person_rotation.y =
+			    glm_clamp(camera->free.first_person_rotation.y, -75.0f, 75.0f);
+
+			v4 xq, yq;
+			glm_quatv(xq.data, glm_rad(camera->free.first_person_rotation.x), v3_up().data);
+			glm_quatv(yq.data, glm_rad(camera->free.first_person_rotation.y), v3_right().data);
+
+			v4 rotation;
+			glm_quat_mul(xq.data, yq.data, rotation.data);
+
+			// Rotate
+			transform_set_rotation_local(transform, rotation);
+
+			// Compute direction
+			if (core_key_pressed(KEY_W))
+			{
+				v3 forward = trs_get_forward(transform->transform_local);
+				glm_vec3_add(movement_direction.data, forward.data, movement_direction.data);
+			}
+			if (core_key_pressed(KEY_S))
+			{
+				v3 backward = trs_get_backward(transform->transform_local);
+				glm_vec3_add(movement_direction.data, backward.data, movement_direction.data);
+			}
+			if (core_key_pressed(KEY_D))
+			{
+				v3 right = trs_get_right(transform->transform_local);
+				glm_vec3_sub(movement_direction.data, right.data, movement_direction.data);
+			}
+			if (core_key_pressed(KEY_A))
+			{
+				v3 left = trs_get_left(transform->transform_local);
+				glm_vec3_sub(movement_direction.data, left.data, movement_direction.data);
+			}
+			if (core_key_pressed(KEY_Q))
+			{
+				v3 down = trs_get_down(transform->transform_local);
+				glm_vec3_add(movement_direction.data, down.data, movement_direction.data);
+			}
+			if (core_key_pressed(KEY_E))
+			{
+				v3 up = trs_get_up(transform->transform_local);
+				glm_vec3_add(movement_direction.data, up.data, movement_direction.data);
+			}
+
+			glm_vec3_normalize(movement_direction.data);
+
+			// Wheel delta (used to adjust movement speed)
+			{
+				// Accumulate
+				camera->free.movement_scroll_accumulator += wheel * 0.1f;
+
+				// Prevent it from negating or zeroing the acceleration, see translation calculation.
+				f32 min = -movement_acceleration + 0.1f;
+				f32 max = movement_acceleration * 2.0f; // An empirically chosen max.
+
+				camera->free.movement_scroll_accumulator =
+				    glm_clamp(camera->free.movement_scroll_accumulator, min, max);
+			}
+		}
+
+		v3 translation;
+		glm_vec3_scale(movement_direction.data,
+		    movement_acceleration + camera->free.movement_scroll_accumulator, translation.data);
+
+		if (core_key_pressed(KEY_LEFT_SHIFT)) { glm_vec3_scale(translation.data, 2.0f, translation.data); }
+
+		glm_vec3_scale(translation.data, ctx->dt, translation.data);
+		glm_vec3_add(camera->free.speed.data, translation.data, camera->free.speed.data);
+
+		// Apply drag
+		glm_vec3_scale(camera->free.speed.data, 1.0f - movement_drag * ctx->dt, camera->free.speed.data);
+
+		// clamp it
+		if (glm_vec3_norm(camera->free.speed.data) > movement_speed_max)
+		{
+			glm_vec3_scale_as(camera->free.speed.data, movement_speed_max, camera->free.speed.data);
+		}
+
+		// translate for as long as there is speed
+		if (!glm_vec3_eq(camera->free.speed.data, 0.0f)) { transform_translate(transform, camera->free.speed); }
+	}
+	else if (camera->flags & CAMERA_FLAG_THIRD_PERSON)
+	{
+		core_hide_cursor();
+
+		v4 q;
+		glm_mat4_quat(transform->matrix.data, q.data);
+
+		v3 angles = quat_to_euler_angles(q);
+		camera->third_person.rotation.x = glm_deg(angles.yaw);
+		camera->third_person.rotation.y = glm_deg(angles.pitch);
+
+		f32 mouse_sensitivity = 0.5f;
+
+		v2 mouse_delta;
+		glm_vec2_scale(offset.data, -1 * mouse_sensitivity, mouse_delta.data);
+
+		f32 mouse_smoothing = 0.5f;
+		glm_vec2_lerp(camera->third_person.mouse_smoothed.data, mouse_delta.data,
+		    glm_clamp_zo(1.0f - mouse_smoothing), camera->third_person.mouse_smoothed.data);
+
+		glm_vec2_add(camera->third_person.rotation.data, camera->third_person.mouse_smoothed.data,
+		    camera->third_person.rotation.data);
+
+		// clamp rotation along the x-axis (but not exactly at 90 degrees, this is to avoid a
+		// gimbal lock).
+		camera->third_person.rotation.y = glm_clamp(camera->third_person.rotation.y, -75.0f, 75.0f);
+
+		// Zoom
+		if (wheel < 0.0f) { camera->third_person.target_distance *= 1.2f; }
+		else if (wheel > 0.0f) { camera->third_person.target_distance /= 1.2f; }
+		camera->third_person.target_distance = glm_clamp(camera->third_person.target_distance, 1.0f, 12.0f);
+
+		v4 xq, yq;
+		v4 rotation;
+		glm_quatv(xq.data, glm_rad(camera->third_person.rotation.x), v3_up().data);
+		glm_quatv(yq.data, glm_rad(camera->third_person.rotation.y), v3_right().data);
+		glm_quat_mul(xq.data, yq.data, rotation.data);
+
+		// Calculate the camera's position based on the target's position and rotation
+		v3 offset;
+		glm_vec3_scale(v3_forward().data, -camera->third_person.target_distance, offset.data);
+		glm_quat_rotatev(rotation.data, offset.data, offset.data);
+
+		// Update the camera's position
+		v3 new_position;
+		glm_vec3_add(camera->third_person.target.data, offset.data, new_position.data);
+
+		// Camera occlusion
+		trs ray_position = trs_lookat(camera->third_person.target, new_position, v3_up());
+		struct ray ray;
+		ray.position = ray_position.translation.v3;
+		ray.direction = trs_get_backward(ray_position);
+
+		struct intersect_result best_result = {0};
+		struct scene_iter inner_iter = stage_iter_begin(TRANSFORM | STATIC_BODY | MESH);
+		while (stage_iter_next(&inner_iter))
+		{
+			transform_component *transform = scene_iter_get_component(&inner_iter, TRANSFORM);
+			mesh_component *mesh = scene_iter_get_component(&inner_iter, MESH);
+
+			struct intersect_result result = collision_ray_mesh(ray, mesh, transform);
+			if (result.valid)
+			{
+				if (!best_result.valid || result.depth < best_result.depth) { best_result = result; }
+			}
+		}
+
+		if (best_result.valid)
+		{
+			if (best_result.depth <= camera->third_person.target_distance)
+			{
+				v3 offset;
+				glm_vec3_scale(best_result.normal.data, 0.1f, offset.data);
+				glm_vec3_add(best_result.position.data, offset.data, offset.data);
+				new_position = offset;
+			}
+		}
+
+		shake_do(&shake, &new_position);
+		transform_set_position(transform, new_position);
+
+		// Update the camera's orientation
+		transform_set_rotation_local(transform, rotation);
+	}
+
+	camera_lerp_to_entity(scene, camera, transform, ctx);
+}
+
 b8
 scene_camera_update(
     struct arena *arena, struct scene *scene, sm__maybe_unused struct ctx *ctx, sm__maybe_unused void *user_data)
 {
-	struct scene_iter iter = scene_iter_begin(scene, CAMERA);
+	struct scene_iter iter = scene_iter_begin(scene, CAMERA | TRANSFORM);
 	while (scene_iter_next(scene, &iter))
 	{
 		camera_component *cam = scene_iter_get_component(&iter, CAMERA);
+		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
 
-		if (cam->flags & CAMERA_FLAG_THIRD_PERSON)
-		{
-			v2 offset = core_get_cursor_rel_pos();
-			f32 wheel = core_get_scroll();
+		cam->aspect_ratio = (f32)ctx->framebuffer_width / (f32)ctx->framebuffer_height;
 
-			cam->angle.x -= (offset.x * -cam->sensitive * ctx->dt);
-			cam->angle.y -= (offset.y * -cam->sensitive * ctx->dt);
+		scene_camera_update_input(scene, cam, transform, ctx);
 
-			// Angle clamp
-			if (cam->angle.y > glm_rad(25.0f)) { cam->angle.y = glm_rad(25.0f); }
-			else if (cam->angle.y < glm_rad(-75.0f)) { cam->angle.y = glm_rad(-75.0f); }
+		// Get the view matrix
+		v3 eye = transform->matrix.v3.position;
+		v3 up = trs_get_up(transform->transform_local);
+		v3 look_at = trs_get_forward(transform->transform_local);
 
-			// Camera zoom
-			cam->target_distance -= (wheel * 48.0f * ctx->dt);
+		glm_look(eye.data, look_at.data, up.data, cam->view.data);
 
-			// Camera distance clamp
-			// if (cam->target_distance < 1.2f) { cam->target_distance = 1.2f; }
-			cam->target_distance = MAX(1.2f, cam->target_distance);
-			cam->target_distance = MIN(12.0f, cam->target_distance);
+		// Get the projection matrix
+		f32 fovy = camera_get_fov_y(cam);
+		glm_perspective(fovy, cam->aspect_ratio, cam->z_near, cam->z_far, cam->projection.data);
 
-			v3 position;
-			position.x = sinf(cam->angle.x) * cam->target_distance * cosf(cam->angle.y) + cam->target.x;
+		// Cache view projection matrix
+		glm_mat4_mul(cam->projection.data, cam->view.data, cam->view_projection.data);
 
-			if (cam->angle.y <= 0.0f)
-			{
-				position.y =
-				    sinf(cam->angle.y) * cam->target_distance * sinf(cam->angle.y) + cam->target.y;
-			}
-			else
-			{
-				position.y =
-				    -sinf(cam->angle.y) * cam->target_distance * sinf(cam->angle.y) + cam->target.y;
-			}
-
-			position.z = cosf(cam->angle.x) * cam->target_distance * cosf(cam->angle.y) + cam->target.z;
-
-			glm_vec3_copy(position.data, cam->position.data);
-			// glm_vec3_lerp(cam->position.data, position.data, 0.5, cam->position.data);
-		}
-		else if (cam->flags & CAMERA_FLAG_FREE) {}
-		else {}
+		// Sound
+		v3 look_at_inv;
+		glm_vec3_inv_to(transform->matrix.v3.forward.data, look_at_inv.data);
+		audio_set_listener_position(eye);
+		audio_set_listener_direction(look_at_inv);
 	}
 
 	return (true);
@@ -531,16 +1069,16 @@ scene_m4_palette_update(
 #define ANIM_WALKING   9
 
 static str8 ctable_animation_names[] = {
-    str8_from("Idle_Armature"),
-    str8_from("Jump2_Armature"),
-    str8_from("Jump_Armature"),
-    str8_from("Lean_Left_Armatur"),
-    str8_from("PickUp_Armature"),
-    str8_from("Punch_Armature"),
-    str8_from("Running_Armature"),
-    str8_from("SitIdle_Armature"),
-    str8_from("Sitting_Armature"),
-    str8_from("Walking_Armature"),
+    str8_from("woman-idle"),
+    str8_from("woman-jump2"),
+    str8_from("woman-jump"),
+    str8_from("woman-lean-left"),
+    str8_from("woman-pickup"),
+    str8_from("woman-punch"),
+    str8_from("woman-run"),
+    str8_from("woman-sit-idle"),
+    str8_from("woman-sit"),
+    str8_from("woman-walk"),
 
 };
 
@@ -548,16 +1086,166 @@ b8
 scene_player_update(
     struct arena *arena, struct scene *scene, sm__maybe_unused struct ctx *ctx, sm__maybe_unused void *user_data)
 {
-	struct scene_iter iter = scene_iter_begin(scene, TRANSFORM | WORLD | HIERARCHY | MESH | MATERIAL | ARMATURE |
-							     CLIP | POSE | CROSS_FADE_CONTROLLER | RIGID_BODY | PLAYER);
+	struct scene_iter iter = scene_iter_begin(
+	    scene, TRANSFORM | MESH | MATERIAL | ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER | RIGID_BODY | PLAYER);
 	while (scene_iter_next(scene, &iter))
 	{
 		entity_t cam_ett = scene_get_main_camera(scene);
 		camera_component *camera = scene_component_get_data(scene, cam_ett, CAMERA); // TODO
 
 		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
-		world_component *world = scene_iter_get_component(&iter, WORLD);
-		hierarchy_component *hierarchy = scene_iter_get_component(&iter, HIERARCHY);
+		// world_component *world = scene_iter_get_component(&iter, WORLD);
+		// hierarchy_component *hierarchy = scene_iter_get_component(&iter, HIERARCHY);
+		mesh_component *mesh = scene_iter_get_component(&iter, MESH);
+		material_component *material = scene_iter_get_component(&iter, MATERIAL);
+		armature_component *armature = scene_iter_get_component(&iter, ARMATURE);
+		clip_component *clip = scene_iter_get_component(&iter, CLIP);
+		pose_component *current = scene_iter_get_component(&iter, POSE);
+		cross_fade_controller_component *cfc = scene_iter_get_component(&iter, CROSS_FADE_CONTROLLER);
+		rigid_body_component *rb = scene_iter_get_component(&iter, RIGID_BODY);
+		player_component *player = scene_iter_get_component(&iter, PLAYER);
+
+		v3 input;
+		if (camera->flags & CAMERA_FLAG_FREE) { input = v3_zero(); }
+		else
+		{
+			input = v3_new(core_key_pressed(KEY_A) - core_key_pressed(KEY_D), 0,
+			    core_key_pressed(KEY_S) - core_key_pressed(KEY_W));
+		}
+
+		v3 direction;
+		glm_vec3_normalize_to(input.data, direction.data);
+		f32 dir_len = glm_vec3_norm(direction.data);
+
+		if (dir_len != 0.0f)
+		{
+			m4 view = camera->view;
+
+			v3 fwd = view.v3.forward;
+			fwd.y = 0.0f;
+			fwd.x = -fwd.x;
+
+			v3 right = view.v3.right;
+			right.x = -right.x;
+			right.y = 0.0f;
+
+			glm_vec3_scale(fwd.data, direction.z, fwd.data);
+			glm_vec3_scale(right.data, direction.x, right.data);
+
+			glm_vec3_add(fwd.data, right.data, direction.data);
+
+			f32 angle = atan2f(direction.x, direction.z);
+
+			v4 rotation;
+			glm_quatv(rotation.data, angle, v3_up().data);
+			glm_quat_slerp(transform->transform_local.rotation.data, rotation.data, .5f, rotation.data);
+			transform_set_rotation(transform, rotation);
+			player->state = ANIM_WALKING;
+		}
+		else { player->state = ANIM_IDLE; }
+
+		f32 sprint = 1.0f;
+		if (core_key_pressed(KEY_LEFT_SHIFT))
+		{
+			sprint = 2.5f;
+			player->state = ANIM_RUNNING;
+		}
+		glm_vec3_scale(direction.data, sprint * 25.0f * ctx->dt, direction.data);
+
+		glm_vec3_add(rb->velocity.data, direction.data, rb->velocity.data);
+
+		// glm_vec3_lerp(camera->target.data, transform->position.v3.data, .5f, camera->target.data);
+		v3 target = transform->transform_local.translation.v3;
+
+		if (glm_vec3_norm(rb->velocity.data) < 0.01f) { player->state = ANIM_IDLE; }
+
+		v3 c;
+		glm_vec3_sub(rb->capsule.tip.data, rb->capsule.base.data, c.data);
+		f32 height = glm_vec3_norm(c.data);
+		target.y += height;
+
+		camera->third_person.target = target;
+
+		// glm_vec3_smoothinterp(camera->target.data, target.data, 10.0f * ctx->dt, camera->target.data);
+
+		if (core_key_pressed(KEY_H)) { player->state = ANIM_LEAN_LEFT; }
+		struct resource *resource_clip = resource_get_by_name(ctable_animation_names[player->state]);
+		if (resource_clip) { clip->next_clip_ref = resource_clip->data; }
+		else { log_warn(str8_from("[{s}] clip resource not found"), ctable_animation_names[player->state]); }
+
+		if (player->state == ANIM_RUNNING)
+		{
+			for (u32 i = 0; i < array_len(clip->current_clip_ref->tracks); ++i)
+			{
+				struct transform_track *tt = &clip->current_clip_ref->tracks[i];
+				f32 t = clip_adjust_time(clip->current_clip_ref, clip->time);
+
+				i32 frame_index = track_frame_index(&tt->position, t, clip->current_clip_ref->looping);
+				i32 trigger_frames[2] = {0, 8};
+
+				b8 found = false;
+				for (u32 j = 0; j < ARRAY_SIZE(trigger_frames); ++j)
+				{
+					if (frame_index == trigger_frames[j])
+					{
+						str8 audios[] = {
+						    str8_from("step1"), str8_from("step2"), str8_from("step3")};
+						u32 idx = prng_min_max(0, ARRAY_SIZE(audios));
+						audio_set_position(audios[idx], rb->capsule.base);
+						audio_play(audios[idx]);
+						found = true;
+						break;
+					}
+				}
+				if (found) { break; }
+			}
+		}
+		if (player->state == ANIM_WALKING)
+		{
+			for (u32 i = 0; i < array_len(clip->current_clip_ref->tracks); ++i)
+			{
+				struct transform_track *tt = &clip->current_clip_ref->tracks[i];
+				f32 t = clip_adjust_time(clip->current_clip_ref, clip->time);
+
+				i32 frame_index = track_frame_index(&tt->position, t, clip->current_clip_ref->looping);
+				i32 trigger_frames[2] = {10, 24};
+
+				b8 found = false;
+				for (u32 j = 0; j < ARRAY_SIZE(trigger_frames); ++j)
+				{
+					if (frame_index == trigger_frames[j])
+					{
+						str8 audios[] = {
+						    str8_from("step1"), str8_from("step2"), str8_from("step3")};
+						u32 idx = prng_min_max(0, ARRAY_SIZE(audios));
+						audio_set_position(audios[idx], rb->capsule.base);
+						audio_play(audios[idx]);
+						found = true;
+						break;
+					}
+				}
+				if (found) { break; }
+			}
+		}
+	}
+
+	return (true);
+}
+
+b8
+scene_player_update_viniL(
+    struct arena *arena, struct scene *scene, sm__maybe_unused struct ctx *ctx, sm__maybe_unused void *user_data)
+{
+	struct scene_iter iter = scene_iter_begin(
+	    scene, TRANSFORM | MESH | MATERIAL | ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER | RIGID_BODY | PLAYER);
+	while (scene_iter_next(scene, &iter))
+	{
+		entity_t cam_ett = scene_get_main_camera(scene);
+		camera_component *camera = scene_component_get_data(scene, cam_ett, CAMERA); // TODO
+
+		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
+		// world_component *world = scene_iter_get_component(&iter, WORLD);
+		// hierarchy_component *hierarchy = scene_iter_get_component(&iter, HIERARCHY);
 		mesh_component *mesh = scene_iter_get_component(&iter, MESH);
 		material_component *material = scene_iter_get_component(&iter, MATERIAL);
 		armature_component *armature = scene_iter_get_component(&iter, ARMATURE);
@@ -576,119 +1264,79 @@ scene_player_update(
 
 		if (dir_len != 0.0f)
 		{
-			m4 view = camera_get_view(camera);
-			v3 fwd;
-			fwd.data[0] = view.data[2][0];
-			fwd.data[1] = 0.0f;
-			fwd.data[2] = -view.data[2][2];
-			v3 right;
+			m4 view = (camera->view);
 
-			right.data[0] = -view.data[0][0];
-			right.data[1] = 0.0f;
-			right.data[2] = view.data[0][2];
+			v3 fwd = view.v3.forward;
+			fwd.y = 0.0f;
+			fwd.z = -fwd.z;
+
+			v3 right = view.v3.right;
+			right.y = 0.0f;
+			right.x = -right.x;
 
 			glm_vec3_scale(fwd.data, direction.z, fwd.data);
 			glm_vec3_scale(right.data, direction.x, right.data);
 
 			glm_vec3_add(fwd.data, right.data, direction.data);
 
-			glm_vec3_normalize(direction.data);
-			f32 yaw = atan2f(direction.x, direction.z);
+			f32 angle = atan2f(direction.x, direction.z);
 
 			v4 rotation;
-
-			glm_quatv(rotation.data, yaw, v3_up().data);
-			glm_quat_slerp(
-			    transform->rotation.data, rotation.data, 10.0f * ctx->dt, transform->rotation.data);
-			transform_set_dirty(transform, true);
-			player->state = ANIM_WALKING;
+			glm_quatv(rotation.data, angle, v3_up().data);
+			glm_quat_slerp(transform->transform_local.rotation.data, rotation.data, .5f,
+			    transform->transform_local.rotation.data);
+			// transform_set_dirty(transform, true);
+			// player->state = ANIM_WALKING;
 		}
-		else { player->state = ANIM_IDLE; }
+		else
+		{ /* player->state = ANIM_IDLE; */
+		}
 
 		f32 sprint = 1.0f;
 		if (core_key_pressed(KEY_LEFT_SHIFT))
 		{
 			sprint = 2.5f;
-			player->state = ANIM_RUNNING;
+			// player->state = ANIM_RUNNING;
 		}
 		glm_vec3_scale(direction.data, sprint * 18.0f * ctx->dt, direction.data);
 
-		f32 fov = (core_key_pressed(KEY_K) - core_key_pressed(KEY_J)) * 0.5f;
-		camera->fov += fov;
-		if (camera->fov < 12.0f) { camera->fov = 12.0f; }
-		else if (camera->fov > 80.0f) { camera->fov = 80.0f; }
+		// if (camera->fov < 12.0f) { camera->fov = 12.0f; }
+		// else if (camera->fov > 80.0f) { camera->fov = 80.0f; }
 		glm_vec3_add(rb->velocity.data, direction.data, rb->velocity.data);
 
-		camera->target = transform->position.v3;
+		// glm_vec3_lerp(camera->target.data, transform->position.v3.data, .5f, camera->target.data);
+		v3 target = transform->transform_local.translation.v3;
 
-		if (glm_vec3_norm(rb->velocity.data) < 0.01f) { player->state = ANIM_IDLE; }
+		if (glm_vec3_norm(rb->velocity.data) < 0.01f)
+		{ /*  player->state = ANIM_IDLE;  */
+		}
 
 		v3 c;
 		glm_vec3_sub(rb->capsule.tip.data, rb->capsule.base.data, c.data);
 		f32 height = glm_vec3_norm(c.data);
-		camera->target.y += height;
+		target.y += height;
+		camera->third_person.target = target;
 
-		if (core_key_pressed(KEY_F)) { player->state = ANIM_SITIDLE; }
-		struct resource *resource_clip = resource_get_by_name(ctable_animation_names[player->state]);
-		assert(resource_clip);
-		clip->next_clip_ref = resource_clip->data;
+		// glm_vec3_smoothinterp(camera->target.data, target.data, 10.0f * ctx->dt, camera->target.data);
+
+		// if (core_key_pressed(KEY_F)) { player->state = ANIM_SITIDLE; }
+		// struct resource *resource_clip = resource_get_by_name(ctable_animation_names[player->state]);
+		// assert(resource_clip);
+		// clip->next_clip_ref = resource_clip->data;
 	}
 
 	return (true);
 }
 
 b8
-scene_hierarchy_update(
-    struct arena *arena, struct scene *scene, sm__maybe_unused struct ctx *ctx, sm__maybe_unused void *user_data)
+scene_hierarchy_update(sm__maybe_unused struct arena *arena, sm__maybe_unused struct scene *scene,
+    sm__maybe_unused struct ctx *ctx, sm__maybe_unused void *user_data)
 {
-	struct scene_iter iter = scene_iter_begin(scene, TRANSFORM | WORLD | HIERARCHY);
+	struct scene_iter iter = scene_iter_begin(scene, TRANSFORM);
 	while (scene_iter_next(scene, &iter))
 	{
-		transform_component *child_transform = scene_iter_get_component(&iter, TRANSFORM);
-		const hierarchy_component *child_hierarchy = scene_iter_get_component(&iter, HIERARCHY);
-
-		entity_t parent = child_hierarchy->parent;
-		b8 dirty = transform_is_dirty(child_transform);
-		while (parent.handle && !dirty)
-		{
-			if (!scene_entity_is_valid(scene, parent)) { continue; }
-			if (scene_entity_has_components(scene, parent, TRANSFORM | WORLD | HIERARCHY))
-			{
-				transform_component *parent_transform =
-				    scene_component_get_data(scene, parent, TRANSFORM);
-				dirty = transform_is_dirty(parent_transform);
-
-				hierarchy_component *parent_hierarchy =
-				    scene_component_get_data(scene, parent, HIERARCHY);
-				parent = parent_hierarchy->parent;
-			}
-			else { assert(0); }
-		}
-
-		if (!dirty) { continue; }
-
-		parent = child_hierarchy->parent;
-		transform_component accumulator = *child_transform;
-
-		while (parent.handle)
-		{
-			assert(scene_entity_is_valid(scene, parent));
-			if (scene_entity_has_components(scene, parent, TRANSFORM | WORLD | HIERARCHY))
-			{
-				transform_component *parent_transform =
-				    scene_component_get_data(scene, parent, TRANSFORM);
-				accumulator = transform_combine(*parent_transform, accumulator);
-
-				hierarchy_component *parent_hierarchy =
-				    scene_component_get_data(scene, parent, HIERARCHY);
-				parent = parent_hierarchy->parent;
-			}
-			else { assert(0); }
-		}
-
-		world_component *child_world = scene_iter_get_component(&iter, WORLD);
-		m4 world = transform_to_m4(accumulator);
-		world_store_matrix(child_world, world);
+		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
+		if (transform_is_dirty(transform)) { transform_update_tree(transform); }
 	}
 
 	return (true);
@@ -702,15 +1350,29 @@ void on_detach(sm__maybe_unused struct ctx *ctx);
 i32
 main(i32 argc, i8 *argv[])
 {
+#if 1 // TIKOTEKO
+#	define WIDTH  432
+#	define HEIGHT 768
+#	define SCALE  0.9
+#else
+#	define WIDTH  800
+#	define HEIGHT 450
+#	define SCALE  0.9
+#endif
+
 	struct core_init init_c = {
 	    .argc = argc,
 	    .argv = argv,
 	    .title = str8_from("Terror em SL"),
-	    .w = 800.0f,
-	    .h = 600.0f,
-	    .total_memory = MB(30),
+	    .w = WIDTH,
+	    .h = HEIGHT,
+	    .total_memory = MB(32),
+
+	    .framebuffer_w = WIDTH * SCALE,
+	    .framebuffer_h = HEIGHT * SCALE,
 	    .target_fps = 24,
-	    .fixed_fps = 24,
+	    .fixed_fps = 48,
+
 	    .prng_seed = 42,
 	    .user_data = 0,
 	    .assets_folder = str8_from("assets/"),
@@ -734,143 +1396,234 @@ main(i32 argc, i8 *argv[])
 
 void
 on_attach(sm__maybe_unused struct ctx *ctx)
-
 {
+	shake = shake_make(1, 60, 0.5f);
+
 	sm___resource_mock_read();
+
+	// TODO: this should be per scene
+	renderer_set_clear_color(cGRAY);
+
 	stage_scene_new(str8_from("main scene"));
 	{
-		entity_t cam_ett = stage_entity_new(CAMERA);
-		stage_set_main_camera(cam_ett);
+		entity_t camera_ett = stage_entity_new(CAMERA | TRANSFORM);
 		stage_set_gravity_force(v3_new(0.0f, -9.8f, 0.0f));
+		stage_set_main_camera(camera_ett);
 
-		camera_component *camera = stage_component_get_data(cam_ett, CAMERA);
+		camera_component *camera = stage_component_get_data(camera_ett, CAMERA);
+		transform_component *camera_transform = stage_component_get_data(camera_ett, TRANSFORM);
 		{
-			v3 camera_position = v3_new(1.8f, 5.0f, -5.0f);
-			v3 camera_target = v3_zero();
+			camera_transform->matrix_local = m4_identity();
+			camera_transform->transform_local = trs_identity();
+			camera_transform->transform_local.translation.v3 = v3_new(0.0f, 5.0f, 5.0f);
 
-			v3 dist;
-			glm_vec3_sub(camera_target.data, camera_position.data, dist.data);
-			f32 target_distance = glm_vec3_norm(dist.data);
+			camera_transform->matrix = m4_identity();
+			camera_transform->last_matrix = m4_identity();
 
-			v3 angle = {
-			    .x = atan2f(dist.x, dist.z),
-			    .y = atan2f(dist.y, sqrtf(dist.x * dist.x + dist.z * dist.z)),
-			};
+			camera_transform->parent_transform = 0;
+			camera_transform->chidren_transform = 0;
 
-			camera->position = camera_position;
-			camera->target = camera_target;
-			camera->target_distance = target_distance;
-			camera->move_speed = 1.0f;
-			camera->sensitive = 0.5f;
-			camera->aspect_ratio = ((f32)ctx->win_width / ctx->win_height);
-			camera->fov = 75.0f;
-			camera->angle = angle;
-			camera->flags = CAMERA_FLAG_THIRD_PERSON;
+			camera_transform->archetype = CAMERA | TRANSFORM;
+			camera_transform->self = camera_ett;
 
-			core_hide_cursor();
+			transform_update_tree(camera_transform);
+
+			camera_transform->flags = TRANSFORM_FLAG_DIRTY;
 		}
+		{
+			camera->z_near = 0.1f;
+			camera->z_far = 100.0f;
+			camera->fovx = glm_rad(75.0f);
+			camera->aspect_ratio = ((f32)ctx->framebuffer_width / (f32)ctx->framebuffer_height);
+			camera->flags = CAMERA_FLAG_FREE;
+			camera->free.speed = v3_zero();
+			camera->free.movement_scroll_accumulator = 0;
+			camera->free.mouse_smoothed = v2_zero();
+			camera->free.first_person_rotation = v2_zero();
+			camera->free.mouse_last_position = v2_zero();
+
+			camera->free.focus_entity = player_ett;
+			camera->free.lerp_to_target_position = v3_zero();
+			camera->free.lerp_to_target_rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
+			camera->free.lerp_to_target_distance = 0;
+			camera->free.lerp_to_target_alpha = 0;
+
+			camera->free.lerp_to_target_p = false;
+			camera->free.lerp_to_target_r = false;
+
+			camera->third_person.target_distance = 5;
+			camera->third_person.target = v3_zero();
+			camera->third_person.rotation = v2_zero();
+			camera->third_person.mouse_smoothed = v2_zero();
+		}
+
+		renderer_shader_add(str8_from("default_program3D"), str8_from("shaders/default3D.vertex"),
+		    str8_from("shaders/default3D.fragment"));
+		renderer_shader_add(
+		    str8_from("bayer"), str8_from("shaders/bayer.vertex"), str8_from("shaders/bayer.fragment"));
+		renderer_shader_add(str8_from("skinned3D"), str8_from("shaders/skinned.vertex"),
+		    str8_from("shaders/default3D.fragment"));
+
+		renderer_texture_add(str8_from("bayer16tile2"));
+		renderer_texture_add(str8_from("bayer8tile4"));
+		renderer_texture_add(str8_from("witch-finger"));
+		renderer_texture_add(str8_from("toshibasat8x8"));
+		renderer_texture_add(str8_from("spark_flame"));
+		renderer_texture_add(str8_from("Woman"));
+
+		audio_set_master_volume(1.0f);
+		audio_add_music(str8_from("bg_music1"), str8_from("exported/ghost-love.wav"));
+		audio_play(str8_from("bg_music1"));
+		audio_add_sound(str8_from("step1"), str8_from("exported/foottapping_01.wav"));
+		audio_add_sound(str8_from("step2"), str8_from("exported/foottapping_02.wav"));
+		audio_add_sound(str8_from("step3"), str8_from("exported/foottapping_03.wav"));
 
 		stage_system_register(str8_from("Mesh"), scene_mesh_calculate_aabb_update, 0);
 		stage_system_register(str8_from("Rigid body"), scene_rigid_body_update, 0);
+		stage_system_register(str8_from("Particle emitter"), scene_particle_emitter_update, 0);
 		stage_system_register(str8_from("Player"), scene_player_update, 0);
 		stage_system_register(str8_from("Camera"), scene_camera_update, 0);
 		stage_system_register(str8_from("Hierarchy"), scene_hierarchy_update, 0);
 		stage_system_register(str8_from("Transform clear"), scene_transform_clear_dirty, 0);
+		stage_system_register(str8_from("Particle emitter sort"), scene_particle_emitter_sort_update, 0);
 		stage_system_register(str8_from("Cross fade controller"), scene_cfc_update, 0);
 		stage_system_register(str8_from("Fade to"), scene_fade_to_update, 0);
 		stage_system_register(str8_from("Palette"), scene_m4_palette_update, 0);
 
-		stage_scene_asset_load(str8_from("MainScene"));
-		// stage_scene_asset_load(str8_from("exported/woman-agent.gltf"));
-		// stage_scene_asset_load(str8_from("exported/city-general-props.gltf"));
-		// stage_scene_asset_load(str8_from("exported/triangulo-praca.gltf"));
-		// scene_load(scene->arena, scene, str8_from("exported/prefeitura-predio.gltf"));
+		stage_scene_asset_load(str8_from("Scene"));
+		// stage_scene_asset_load(str8_from("praca-scene"));
+		stage_scene_asset_load(str8_from("hierarchy"));
+		stage_scene_asset_load(str8_from("simple-cube-scene"));
 
-		sphere_ett = stage_entity_new(TRANSFORM | WORLD | RIGID_BODY);
+		struct arena *current_scene_arena = stage_scene_get_arena();
+		// Particle emitter
 		{
-			transform_component *transform = stage_component_get_data(sphere_ett, TRANSFORM);
-			rigid_body_component *rigid_body = stage_component_get_data(sphere_ett, RIGID_BODY);
+			component_t emitter_archetype = TRANSFORM | PARTICLE_EMITTER;
+			entity_t emitter = stage_entity_new(emitter_archetype);
 
-			transform->position = v4_new(5.0f, 20.0f, 0.0f, 0.0f);
-			transform->scale = v3_one();
-			transform->rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
-			transform->flags = TRANSFORM_FLAG_DIRTY;
+			transform_component *partcile_transform = stage_component_get_data(emitter, TRANSFORM);
+			transform_init(partcile_transform, emitter, emitter_archetype);
 
-			rigid_body->velocity = v3_zero();
-			rigid_body->gravity = v3_zero();
-			rigid_body->collision_shape = RIGID_BODY_COLLISION_SHAPE_SPHEPE;
-			rigid_body->has_gravity = true;
+			particle_emitter_component *p_emitter = stage_component_get_data(emitter, PARTICLE_EMITTER);
+			p_emitter->emission_rate = 32;
+			particle_emitter_init(current_scene_arena, p_emitter, 256);
+			struct aabb aabb_emitter = {.min = v3_new(-2, 0, -2), .max = v3_new(2, 0, 2)};
+			// particle_emitter_set_shape_box(p_emitter, aabb_emitter);
+			trs cube = ((union trs){.translation = v4_zero(),
+			    .rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f),
+			    .scale = v3_new(4, 4, 4)});
+			particle_emitter_set_shape_cube(p_emitter, cube);
 
-			v3 center = transform->position.v3;
+			struct scene_iter iter = stage_iter_begin(TRANSFORM | MESH);
+			while (stage_iter_next(&iter))
+			{
+				mesh_component *mesh = stage_iter_get_component(&iter, MESH);
+				transform_component *transform = stage_iter_get_component(&iter, TRANSFORM);
 
-			rigid_body->sphere = (sphere){.center = center, .radius = 0.5f};
+				if (str8_eq(mesh->resource_ref->name, str8_from("child-cone-mesh")))
+				{
+					transform_set_parent(current_scene_arena, partcile_transform, transform);
+				}
+			}
 		}
 
-#if 0
-		player_ett = stage_animated_asset_load(str8_from("exported/Woman.gltf"));
-		stage_entity_add_component(player_ett, RIGID_BODY | PLAYER);
-
-		transform_component *transform = stage_component_get_data(player_ett, TRANSFORM);
-		rigid_body_component *rigid_body = stage_component_get_data(player_ett, RIGID_BODY);
+		player_ett = stage_scene_asset_load(str8_from("woman"));
+		camera->free.focus_entity = player_ett;
+		if (player_ett.handle != INVALID_HANDLE)
 		{
-			transform->position = v4_new(0.0f, 19.0f, 0.0f, 0.0f);
-			transform->scale = v3_new(0.0042f, 0.0042f, 0.0042f);
-			transform->rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
+			stage_entity_add_component(player_ett, RIGID_BODY | PLAYER);
+			// player_ett = stage_animated_asset_load(str8_from("exported/Woman.gltf"));
+
+			transform_component *transform = stage_component_get_data(player_ett, TRANSFORM);
+			rigid_body_component *rigid_body = stage_component_get_data(player_ett, RIGID_BODY);
+			material_component *material = stage_component_get_data(player_ett, MATERIAL);
+			material->material_ref->image = str8_from("Woman");
+			mesh_component *mesh = stage_component_get_data(player_ett, MESH);
+			mesh->mesh_ref->flags |= MESH_FLAG_DRAW_AABB;
+
+			transform->transform_local.translation = v4_new(0.0f, 19.0f, 0.0f, 0.0f);
+			transform->transform_local.scale = v3_new(0.0042f, 0.0042f, 0.0042f);
+			transform->transform_local.rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
 			transform->flags = TRANSFORM_FLAG_DIRTY;
 
 			rigid_body->velocity = v3_zero();
 			rigid_body->gravity = v3_zero();
-			rigid_body->collision_shape = RIGID_BODY_COLLISION_SHAPE_CAPSULE;
+			rigid_body->collision_shape = RB_SHAPE_CAPSULE;
 			rigid_body->has_gravity = true;
 
-			v3 base = transform->position.v3;
-			v3 tip = transform->position.v3;
+			v3 base = transform->transform_local.translation.v3;
+			v3 tip = transform->transform_local.translation.v3;
 			tip.y += 2.1f;
 
-			rigid_body->capsule = (capsule){.base = base, .tip = tip, 0.4f};
+			rigid_body->capsule = (struct capsule){.base = base, .tip = tip, 0.4f};
 		}
-#endif
 	}
+
+	// ================================================================
+	// ================================================================
+	// ================================================================
+
+
 	// ================================================================
 	// ================================================================
 	// ================================================================
 
 	stage_scene_new(str8_from("road"));
 	{
-		entity_t cam_ett = stage_entity_new(CAMERA);
-		stage_set_main_camera(cam_ett);
+		entity_t camera_ett = stage_entity_new(CAMERA | TRANSFORM);
 		stage_set_gravity_force(v3_new(0.0f, -9.8f, 0.0f));
+		stage_set_main_camera(camera_ett);
 
-		camera_component *camera = stage_component_get_data(cam_ett, CAMERA);
+		camera_component *camera = stage_component_get_data(camera_ett, CAMERA);
+		transform_component *camera_transform = stage_component_get_data(camera_ett, TRANSFORM);
 		{
-			v3 camera_position = v3_new(1.8f, 5.0f, -5.0f);
-			v3 camera_target = v3_zero();
+			camera_transform->matrix_local = m4_identity();
+			camera_transform->transform_local = trs_identity();
+			camera_transform->transform_local.translation.v3 = v3_new(0.0f, 5.0f, 5.0f);
 
-			v3 dist;
-			glm_vec3_sub(camera_target.data, camera_position.data, dist.data);
-			f32 target_distance = glm_vec3_norm(dist.data);
+			camera_transform->matrix = m4_identity();
+			camera_transform->last_matrix = m4_identity();
 
-			v3 angle = {
-			    .x = atan2f(dist.x, dist.z),
-			    .y = atan2f(dist.y, sqrtf(dist.x * dist.x + dist.z * dist.z)),
-			};
+			camera_transform->parent_transform = 0;
+			camera_transform->chidren_transform = 0;
 
-			camera->position = camera_position;
-			camera->target = camera_target;
-			camera->target_distance = target_distance;
-			camera->move_speed = 1.0f;
-			camera->sensitive = 0.5f;
-			camera->aspect_ratio = ((f32)ctx->win_width / ctx->win_height);
-			camera->fov = 75.0f;
-			camera->angle = angle;
-			camera->flags = CAMERA_FLAG_THIRD_PERSON;
+			camera_transform->archetype = CAMERA | TRANSFORM;
+			camera_transform->self = camera_ett;
 
-			core_hide_cursor();
+			transform_update_tree(camera_transform);
+
+			camera_transform->flags = TRANSFORM_FLAG_DIRTY;
+		}
+		{
+			camera->z_near = 0.1f;
+			camera->z_far = 100.0f;
+			camera->fovx = glm_rad(75.0f);
+			camera->aspect_ratio = ((f32)ctx->framebuffer_width / (f32)ctx->framebuffer_height);
+			camera->flags = CAMERA_FLAG_FREE;
+			camera->free.speed = v3_zero();
+			camera->free.movement_scroll_accumulator = 0;
+			camera->free.mouse_smoothed = v2_zero();
+			camera->free.first_person_rotation = v2_zero();
+			camera->free.mouse_last_position = v2_zero();
+
+			camera->free.focus_entity = player_ett;
+			camera->free.lerp_to_target_position = v3_zero();
+			camera->free.lerp_to_target_rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
+			camera->free.lerp_to_target_distance = 0;
+			camera->free.lerp_to_target_alpha = 0;
+
+			camera->free.lerp_to_target_p = false;
+			camera->free.lerp_to_target_r = false;
+
+			camera->third_person.target_distance = 5;
+			camera->third_person.target = v3_zero();
+			camera->third_person.rotation = v2_zero();
+			camera->third_person.mouse_smoothed = v2_zero();
 		}
 
 		stage_system_register(str8_from("Mesh"), scene_mesh_calculate_aabb_update, 0);
 		stage_system_register(str8_from("Rigid body"), scene_rigid_body_update, 0);
-		stage_system_register(str8_from("Player"), scene_player_update, 0);
+		stage_system_register(str8_from("Player"), scene_player_update_viniL, 0);
 		stage_system_register(str8_from("Camera"), scene_camera_update, 0);
 		stage_system_register(str8_from("Hierarchy"), scene_hierarchy_update, 0);
 		stage_system_register(str8_from("Transform clear"), scene_transform_clear_dirty, 0);
@@ -878,57 +1631,47 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 		stage_system_register(str8_from("Fade to"), scene_fade_to_update, 0);
 		stage_system_register(str8_from("Palette"), scene_m4_palette_update, 0);
 
-		// stage_scene_asset_load(str8_from("exported/MainScene.gltf"));
-		// stage_scene_asset_load(str8_from("exported/womana-gent.gltf"));
-		// stage_scene_asset_load(str8_from("exported/city-general-props.gltf"));
-		stage_scene_asset_load(str8_from("Scene"));
-		// scene_load(scene->arena, scene, str8_from("exported/prefeitura-predio.gltf"));
-
-		sphere_ett2 = stage_entity_new(TRANSFORM | WORLD | RIGID_BODY);
+		stage_scene_asset_load(str8_from("Triangulo"));
 		{
-			transform_component *transform = stage_component_get_data(sphere_ett2, TRANSFORM);
-			rigid_body_component *rigid_body = stage_component_get_data(sphere_ett2, RIGID_BODY);
+			entity_t viniL = stage_scene_asset_load(str8_from("viniL"));
+			if (viniL.handle != INVALID_HANDLE)
+			{
+				struct resource *resource_clip = resource_get_by_name(str8_from("idle"));
+				assert(resource_clip);
+				clip_component *clip = stage_component_get_data(viniL, CLIP);
+				clip->next_clip_ref = resource_clip->data;
 
-			transform->position = v4_new(5.0f, 20.0f, 0.0f, 0.0f);
-			transform->scale = v3_one();
-			transform->rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
-			transform->flags = TRANSFORM_FLAG_DIRTY;
+				transform_component *transform = stage_component_get_data(viniL, TRANSFORM);
+				transform->transform_local.translation = v4_new(0.0f, 19.0f, 0.0f, 0.0f);
+				transform->transform_local.scale = v3_one();
+				transform->transform_local.rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
+				transform->flags = TRANSFORM_FLAG_DIRTY;
 
-			rigid_body->velocity = v3_zero();
-			rigid_body->gravity = v3_zero();
-			rigid_body->collision_shape = RIGID_BODY_COLLISION_SHAPE_SPHEPE;
-			rigid_body->has_gravity = true;
+				rigid_body_component *rigid_body = stage_component_get_data(viniL, RIGID_BODY);
+				rigid_body->velocity = v3_zero();
+				rigid_body->gravity = v3_zero();
+				rigid_body->collision_shape = RB_SHAPE_CAPSULE;
+				rigid_body->has_gravity = true;
 
-			v3 center = transform->position.v3;
+				v3 base = transform->transform_local.translation.v3;
+				v3 tip = transform->transform_local.translation.v3;
+				tip.y += 2.1f;
 
-			rigid_body->sphere = (sphere){.center = center, .radius = 0.5f};
+				rigid_body->capsule = (struct capsule){.base = base, .tip = tip, 0.4f};
+			}
 		}
-#if 0
-
-		player_ett2 = stage_animated_asset_load(str8_from("exported/Woman.gltf"));
-		stage_entity_add_component(player_ett2, RIGID_BODY | PLAYER);
-
-		transform_component *transform = stage_component_get_data(player_ett2, TRANSFORM);
-		rigid_body_component *rigid_body = stage_component_get_data(player_ett2, RIGID_BODY);
 		{
-			transform->position = v4_new(0.0f, 19.0f, 0.0f, 0.0f);
-			transform->scale = v3_new(0.0042f, 0.0042f, 0.0042f);
-			transform->rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
-			transform->flags = TRANSFORM_FLAG_DIRTY;
-
-			rigid_body->velocity = v3_zero();
-			rigid_body->gravity = v3_zero();
-			rigid_body->collision_shape = RIGID_BODY_COLLISION_SHAPE_CAPSULE;
-			rigid_body->has_gravity = true;
-
-			v3 base = transform->position.v3;
-			v3 tip = transform->position.v3;
-			tip.y += 2.1f;
-
-			rigid_body->capsule = (capsule){.base = base, .tip = tip, 0.4f};
+			entity_t spider = stage_scene_asset_load(str8_from("spider"));
+			if (spider.handle != INVALID_HANDLE)
+			{
+				struct resource *spider_walk = resource_get_by_name(str8_from("spider-walk"));
+				assert(spider_walk);
+				clip_component *spider_clip = stage_component_get_data(spider, CLIP);
+				spider_clip->next_clip_ref = spider_walk->data;
+			}
 		}
-#endif
 	}
+	stage_set_current_by_name(str8_from("main scene"));
 }
 
 void
@@ -936,46 +1679,662 @@ on_update(sm__maybe_unused struct ctx *ctx)
 {
 	if (core_key_pressed(KEY_J)) { stage_set_current_by_name(str8_from("main scene")); }
 	else if (core_key_pressed(KEY_K)) { stage_set_current_by_name(str8_from("road")); }
+	camera_component *camera = stage_get_main_camera();
+
+	if (core_key_pressed(KEY_N)) { shake_start(&shake); }
+
+	struct scene_iter iter = stage_iter_begin(TRANSFORM | MESH);
+	while (stage_iter_next(&iter))
+	{
+		mesh_component *mesh = stage_iter_get_component(&iter, MESH);
+		transform_component *transform = stage_iter_get_component(&iter, TRANSFORM);
+
+		transform_update_tree(transform);
+		if (str8_eq(mesh->resource_ref->name, str8_from("child-cone-mesh")))
+		{
+			v4 q;
+			// static f32 angle = 0.0f;
+			// if ((angle += (30 * ctx->dt)) > 180.0f) angle = 0.0f;
+			// glm_quat(q.data, glm_rad(angle), 0.0f, 1.0f, 0.0f);
+			glm_quat(q.data, glm_rad(90.0 * ctx->dt), 1.0f, 0.0f, 0.0f);
+			// q = quat_from_euler_angles(0.0f, glm_rad(90.0 * ctx->dt), 0.0f);
+
+			// v4 rot = transform_get_rotation(transform);
+			// glm_quat_lerp(rot.data, q.data, 0.5f, rot.data);
+			// transform_set_rotation(transform, rot);
+
+			f32 y = (sinf(ctx->time)) * 2.0f;
+			transform_translate(transform, v3_new(y * ctx->dt, 0.0f, 0.0f));
+			transform_rotate(transform, q);
+		}
+	}
+
+	if (core_key_pressed_lock(KEY_L, 24))
+	{
+		if (camera->flags & CAMERA_FLAG_FREE)
+		{
+			camera->flags &= ~CAMERA_FLAG_FREE;
+			camera->flags |= CAMERA_FLAG_THIRD_PERSON;
+		}
+		else if (camera->flags & CAMERA_FLAG_THIRD_PERSON)
+		{
+			camera->flags &= ~CAMERA_FLAG_THIRD_PERSON;
+			camera->flags |= CAMERA_FLAG_FREE;
+		}
+	}
+}
+
+struct blend
+{
+	u32 index;
+
+	struct blend_sort
+	{
+		float dist;
+		transform_component *transform;
+		mesh_component *mesh;
+		material_component *material;
+
+	} sort[256];
+};
+
+enum cube_face
+{
+	Left,
+	Bottom,
+	Back,
+	Right,
+	Top,
+	Front
+};
+
+enum cube_face
+get_face_toward(trs cube, v3 observer_position)
+{
+	// https://gamedev.stackexchange.com/a/187077
+	trs inv_cube = trs_inverse(cube);
+	v3 to_observer = trs_point(inv_cube, observer_position);
+
+	v3 absolute;
+	glm_vec3_abs(to_observer.data, absolute.data);
+
+	if (absolute.x >= absolute.y)
+	{
+		if (absolute.x >= absolute.z) { return to_observer.x > 0 ? Right : Left; }
+
+		else { return to_observer.z > 0 ? Front : Back; }
+	}
+	else if (absolute.y >= absolute.z) { return to_observer.y > 0 ? Top : Bottom; }
+	else { return to_observer.z > 0 ? Front : Back; }
+}
+
+i32
+compare(const void *a, const void *b)
+{
+	const struct blend_sort *as = a;
+	const struct blend_sort *bs = b;
+	return (as->dist < bs->dist) - (as->dist > bs->dist);
+}
+
+static void
+sm__debug_draw_rigid_body()
+{
+	u32 color = 0x000000FF;
+	struct scene_iter iter = stage_iter_begin(TRANSFORM | MESH);
+	while (stage_iter_next(&iter))
+	{
+		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
+		mesh_component *mesh = scene_iter_get_component(&iter, MESH);
+		if (mesh->mesh_ref->flags & MESH_FLAG_DRAW_AABB)
+		{
+			struct aabb mesh_aabb;
+			glm_aabb_transform(mesh->mesh_ref->aabb.data, transform->matrix.data, mesh_aabb.data);
+			draw_aabb(mesh_aabb, color_from_hex(color));
+			color += (color >> 8) | 0x222222FF;
+		}
+	}
+
+	iter = stage_iter_begin(TRANSFORM | RIGID_BODY);
+	while (stage_iter_next(&iter))
+	{
+		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
+		rigid_body_component *rb = scene_iter_get_component(&iter, RIGID_BODY);
+		switch (rb->collision_shape)
+		{
+		case RB_SHAPE_CAPSULE:
+			{
+				v3 base = rb->capsule.base;
+				base.y += rb->capsule.radius;
+				v3 tip = rb->capsule.tip;
+				tip.y -= rb->capsule.radius;
+
+				draw_capsule_wires(base, tip, rb->capsule.radius, 7, 5, color_from_hex(color));
+				color += (color >> 8) | 0x222222FF;
+			}
+			break;
+		case RB_SHAPE_SPHERE:
+			{
+				trs t = trs_identity();
+				t.translation.v3 = rb->sphere.center;
+				t.scale = v3_fill(rb->sphere.radius);
+
+				// draw_sphere(t, 5, 7, color_from_hex(color));
+				color += (color >> 8) | 0x222222FF;
+			}
+			break;
+		default: sm__unreachable();
+		}
+	}
+}
+
+void
+sm__debug_draw_3d(void)
+{
+	static b8 debug_draw = false;
+	if (core_key_pressed_lock(KEY_F2, 4)) { debug_draw = !debug_draw; }
+	if (!debug_draw) { return; }
+
+	static enum debug_draw_3d {
+		DB_STATIC_BODY_DRAW,
+		DB_MAX,
+	} current = 0;
+
+	if (core_key_pressed_lock(KEY_UP, 4))
+	{
+		current++;
+		current = current % DB_MAX;
+	}
+	if (core_key_pressed_lock(KEY_DOWN, 4))
+	{
+		current--;
+		current = current % DB_MAX;
+	}
+
+	switch (current)
+	{
+	case DB_STATIC_BODY_DRAW: sm__debug_draw_rigid_body(); break;
+	default: break;
+	}
+}
+
+#if 1
+static void
+sm__debug_draw_camera(sm__maybe_unused struct ctx *ctx)
+{
+	camera_component *camera = stage_get_main_camera();
+	f32 pitch;
+	f32 yaw;
+	if (camera->flags & CAMERA_FLAG_THIRD_PERSON)
+	{
+		pitch = camera->third_person.rotation.x;
+		yaw = camera->third_person.rotation.y;
+	}
+	else
+	{
+		pitch = camera->free.first_person_rotation.x;
+		yaw = camera->free.first_person_rotation.y;
+	}
+
+	i8 buf[64] = {0};
+	f32 x_ctx = 10;
+	f32 y_ctx = 10;
+	if (camera->flags & CAMERA_FLAG_THIRD_PERSON)
+	{
+		snprintf(buf, 64, "TARGET:  %.2f, %.2f, %.2f", camera->third_person.target.x,
+		    camera->third_person.target.y, camera->third_person.target.z);
+		str8 distance = str8_from_cstr_stack(buf);
+		y_ctx += (16.0f / 2.0f);
+		draw_text(distance, v2_new(x_ctx, y_ctx), 16, cWHITE);
+		y_ctx += (16.0f / 2.0f) + 10;
+	}
+	if (camera->flags & CAMERA_FLAG_THIRD_PERSON)
+	{
+		snprintf(buf, 64, "DIST:    %.2f", camera->third_person.target_distance);
+		str8 distance = str8_from_cstr_stack(buf);
+		y_ctx += (16.0f / 2.0f);
+		draw_text(distance, v2_new(x_ctx, y_ctx), 16, cWHITE);
+		y_ctx += (16.0f / 2.0f) + 10;
+	}
+	{
+		x_ctx += 15;
+		y_ctx += 30;
+		draw_circle(v2_new(x_ctx, y_ctx), 20, 0, pitch, 17, cRED);
+		snprintf(buf, 64, "PITCH: %.2f", pitch);
+		str8 ptext = str8_from_cstr_stack(buf);
+		draw_text(ptext, v2_new(x_ctx + 20 + 10, y_ctx), 16, cWHITE);
+		y_ctx += 30;
+	}
+	{
+		y_ctx += 30;
+		draw_circle(v2_new(x_ctx, y_ctx), 20, 0, yaw, 17, cGREEN);
+		snprintf(buf, 64, "YAW:   %.2f", yaw);
+		str8 ptext = str8_from_cstr_stack(buf);
+		draw_text(ptext, v2_new(x_ctx + 20 + 10, y_ctx), 16, cWHITE);
+		y_ctx += 30;
+	}
+}
+#endif
+
+static void
+sm__debug_draw_fps(sm__maybe_unused struct ctx *ctx)
+{
+	f32 scale = ctx->framebuffer_width / (f32)ctx->win_width;
+	i8 buf[64];
+	u32 fps = core_get_fps();
+	snprintf(buf, 64, "FPS: %d", fps);
+	str8 text = str8_from_cstr_stack(buf);
+	color fps_color = cWHITE;
+	if (fps < 30) { fps_color = cYELLOW; }
+	else if (fps < 20) { fps_color = cRED; }
+	draw_text(text, v2_new(10 * scale, (ctx->win_height - 10 - 16) * scale), 16 * scale, fps_color);
+}
+
+void
+sm__debug_draw_2d(sm__maybe_unused struct ctx *ctx)
+{
+	static b8 debug_draw = false;
+	if (core_key_pressed_lock(KEY_F1, 4)) { debug_draw = !debug_draw; }
+	if (!debug_draw) { return; }
+
+	static enum debug_draw_2d {
+		DB_CAMERA_DRAW,
+		// DB_FOG_DRAW,
+		DB_MAX,
+	} current = 0;
+
+	if (core_key_pressed_lock(KEY_LEFT, 4))
+	{
+		current += 1;
+		current = current % DB_MAX;
+	}
+	if (core_key_pressed_lock(KEY_RIGHT, 4))
+	{
+		current -= 1;
+		current = current % DB_MAX;
+	}
+
+	switch (current)
+	{
+	case DB_CAMERA_DRAW: sm__debug_draw_camera(ctx); break;
+	default: break;
+	}
+
+	sm__debug_draw_fps(ctx);
 }
 
 void
 on_draw(sm__maybe_unused struct ctx *ctx)
 {
-	camera_component *camera = stage_get_main_camera();
+	renderer_clear_color();
+	renderer_clear_color_buffer();
+	renderer_clear_depth_buffer();
 
-	camera->aspect_ratio = (f32)ctx->win_width / ctx->win_height;
+	// if (!stage_is_current_scene(str8_from("main scene"))) { return; }
 
-	draw_begin_3d(camera);
+	entity_t main_camera_ett = stage_get_main_camera_entity();
+	camera_component *camera = stage_component_get_data(main_camera_ett, CAMERA);
+	transform_component *camera_transform = stage_component_get_data(main_camera_ett, TRANSFORM);
 
-	struct scene_iter iter = stage_iter_begin(MESH | MATERIAL | WORLD);
+	static struct blend blend;
+
+	m4 view = camera->view;
+	m4 view_projection_matrix = camera->view_projection;
+
+	struct scene_iter iter = stage_iter_begin(TRANSFORM | MESH | MATERIAL);
 	while (stage_iter_next(&iter))
 	{
-		world_component *world = stage_iter_get_component(&iter, WORLD);
+		transform_component *transform = stage_iter_get_component(&iter, TRANSFORM);
+		if (transform->archetype & ARMATURE) { continue; }
 		mesh_component *mesh = stage_iter_get_component(&iter, MESH);
 		material_component *material = stage_iter_get_component(&iter, MATERIAL);
 
-		draw_mesh(camera, mesh, material, world->matrix);
+		renderer_state_clear();
+
+		renderer_shader_set(str8_from("bayer"));
+		renderer_shader_set_uniform(str8_from("u_pv"), &view_projection_matrix, sizeof(m4), 1);
+		renderer_shader_set_uniform(str8_from("u_model"), &transform->matrix, sizeof(m4), 1);
+
+		struct material_resource *mat = material->material_ref;
+		renderer_shader_set_uniform(str8_from("u_diffuse_color"), &color_to_v4(mat->color), sizeof(v4), 1);
+		renderer_texture_set(mat->image, str8_from("u_tex0"));
+		renderer_texture_set(str8_from("bayer16tile2"), str8_from("u_bayer"));
+
+		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
+		renderer_blend_set((struct blend_state){.enable = STATE_TRUE, .mode = BLEND_MODE_ALPHA});
+		renderer_rasterizer_set(
+		    (struct rasterizer_state){.cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK});
+		renderer_state_commit();
+
+		draw_mesh2(mesh);
 	}
 
-	// transform_component *transform = scene_component_get_data(scene, player_ett, TRANSFORM);
-	// rigid_body_component *rb = stage_component_get_data(player_ett, RIGID_BODY);
+	iter = stage_iter_begin(TRANSFORM | MESH | MATERIAL | ARMATURE);
+	while (stage_iter_next(&iter))
+	{
+		transform_component *transform = stage_iter_get_component(&iter, TRANSFORM);
+		mesh_component *mesh = stage_iter_get_component(&iter, MESH);
+		material_component *material = stage_iter_get_component(&iter, MATERIAL);
 
-	// draw_sphere(transform->position.v3, 1.0f, 8.0f, 12.0f, v4_one());
-	// v3 base = rb->capsule.base;
-	// base.y += rb->capsule.radius;
-	// v3 tip = rb->capsule.tip;
-	// tip.y -= rb->capsule.radius;
-	//
-	// sm_draw_capsule_wires(base, tip, rb->capsule.radius, 7, 5, BLACK);
-	//
-	// rigid_body_component *sphere_rb = stage_component_get_data(sphere_ett, RIGID_BODY);
-	// draw_sphere(sphere_rb->sphere.center, sphere_rb->sphere.radius, 5, 8, WHITE);
-	//
-	// draw_grid(32, 3);
+		renderer_state_clear();
+
+		renderer_shader_set(str8_from("skinned3D"));
+
+		renderer_shader_set_uniform(str8_from("u_pv"), &view_projection_matrix, sizeof(m4), 1);
+		renderer_shader_set_uniform(str8_from("u_model"), &transform->matrix, sizeof(m4), 1);
+
+		u32 palette_len = array_len(mesh->mesh_ref->skin_data.pose_palette);
+		m4 *palette_ptr = mesh->mesh_ref->skin_data.pose_palette;
+		renderer_shader_set_uniform(str8_from("u_animated"), palette_ptr, sizeof(m4), palette_len);
+
+		struct material_resource *mat = (material->resource_ref) ? material->resource_ref->material_data : 0;
+		if (mat)
+		{
+			renderer_shader_set_uniform(
+			    str8_from("u_diffuse_color"), &color_to_v4(material->material_ref->color), sizeof(v4), 1);
+			renderer_texture_set(material->material_ref->image, str8_from("u_tex0"));
+		}
+		else
+		{
+			renderer_shader_set_uniform(str8_from("u_diffuse_color"), &v4_one(), sizeof(v4), 1);
+			renderer_texture_set(str8_from(""), str8_from("u_tex0"));
+		}
+		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
+		renderer_blend_set((struct blend_state){.enable = STATE_FALSE});
+		renderer_rasterizer_set(
+		    (struct rasterizer_state){.cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK});
+
+		renderer_state_commit();
+
+		draw_mesh2(mesh);
+	}
+
+	trs trs_cube;
+	renderer_batch3D_begin(camera);
+	{
+		renderer_batch_sampler_set(str8_from("spark_flame"));
+
+		static enum blend_mode bl = 0;
+		if (core_key_pressed_lock(KEY_P, 5)) { bl = (bl + 1) % SM__BLEND_MODE_MAX; }
+		renderer_batch_blend_set((struct blend_state){.enable = STATE_TRUE, .mode = bl});
+		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
+		renderer_rasterizer_set(
+		    (struct rasterizer_state){.cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK});
+
+		iter = stage_iter_begin(TRANSFORM | PARTICLE_EMITTER);
+		while (stage_iter_next(&iter))
+		{
+			transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
+			particle_emitter_component *pe = scene_iter_get_component(&iter, PARTICLE_EMITTER);
+
+			trs_cube = pe->cube;
+			trs t = trs_from_m4(transform->matrix);
+			trs_cube = trs_combine(t, trs_cube);
+
+#if defined(PARTICLE_USE_POOL)
+
+			for (u32 i = 0; i < pe->pool_size; ++i)
+			{
+				struct particle *p = &pe->particles_pool[i];
+				if (p->energy_remaing <= 0.0f) { continue; }
+				f32 frac = glm_clamp_zo((p->energy_remaing / p->energy));
+				color c = color_lerp(p->color_begin, p->color_end, 1 - frac);
+
+				draw_billboard(view, p->position, v2_one(), c);
+			}
+
+#else
+			for (struct particle *p = pe->active_sentinel.next; p != &pe->active_sentinel; p = p->next)
+			{
+				f32 frac = glm_clamp_zo((p->energy_remaing / p->energy));
+				color c = color_lerp(p->color_begin, p->color_end, 1 - frac);
+
+				draw_billboard(view, p->position, v2_one(), c);
+			}
+#endif
+		}
+	}
+
+	renderer_batch3D_end();
+
+	str8 name = {0};
+	renderer_batch3D_begin(camera);
+	{
+		renderer_blend_set((struct blend_state){.enable = STATE_FALSE});
+		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
+		renderer_rasterizer_set(
+		    (struct rasterizer_state){.cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK});
+
+		draw_line_3D(v3_zero(), v3_right(), color_from_v3(v3_right()));
+		draw_line_3D(v3_zero(), v3_forward(), color_from_v3(v3_forward()));
+		draw_line_3D(v3_zero(), v3_up(), color_from_v3(v3_up()));
+
+		draw_cube_wires(trs_cube, cRED);
+
+		if (stage_is_current_scene(str8_from("main scene")))
+		{
+			transform_component *player_transform = stage_component_get_data(player_ett, TRANSFORM);
+			trs t = player_transform->transform_local;
+
+			struct ray ray;
+			ray.position = t.translation.v3;
+			ray.position.y += 2.0f;
+			ray.direction = trs_get_forward(t);
+
+			struct intersect_result best_result = {0};
+			iter = stage_iter_begin(TRANSFORM | STATIC_BODY | MESH);
+			while (stage_iter_next(&iter))
+			{
+				transform_component *world = scene_iter_get_component(&iter, TRANSFORM);
+				mesh_component *mesh = scene_iter_get_component(&iter, MESH);
+
+				struct intersect_result result = collision_ray_mesh(ray, mesh, world);
+				if (result.valid)
+				{
+					if (!best_result.valid || result.depth < best_result.depth)
+					{
+						best_result = result;
+					}
+				}
+			}
+
+			if (best_result.valid)
+			{
+				trs sphere = trs_identity();
+				sphere.translation.v3 = best_result.position;
+				sphere.scale = v3_fill(.1f);
+				// draw_sphere(sphere, 5, 7, cRED);
+
+				v3 end;
+				glm_vec3_add(best_result.position.data, best_result.normal.data, end.data);
+				// draw_line_3D(best_result.position, end, cGREEN);
+
+				// draw_text_billboard_3d(camera->position, name, best_result.position, scale,
+				// cWHITE);
+			}
+
+			// draw_ray(ray, cGREY);
+		}
+
+		if (camera->flags & CAMERA_FLAG_FREE && !camera->free.is_controlled_by_keyboard_mouse)
+		{
+			v3 dir = camera_screen_to_world(camera, core_get_window_cursor_position(),
+			    v4_new(0, 0, core_get_window_width(), core_get_window_height()));
+
+			{
+				v2 cursor_position = core_get_window_cursor_position();
+				v4 viewport = v4_new(0, 0, core_get_window_width(), core_get_window_height());
+				v3 position = v3_new(cursor_position.x, viewport.height - (cursor_position.y), 1.0f);
+
+				m4 mvp;
+				glm_mat4_mul(
+				    camera->view_projection.data, camera_transform->matrix_local.data, mvp.data);
+				glm_unproject(position.data, mvp.data, viewport.data, dir.data);
+				glm_vec3_normalize(dir.data);
+				v4 q;
+				glm_mat4_quat(camera_transform->matrix.data, q.data);
+				glm_quat_rotatev(q.data, dir.data, dir.data);
+				glm_vec3_normalize(dir.data);
+			}
+
+			struct ray ray = {.position = camera_transform->matrix.v3.position, .direction = dir};
+
+			struct intersect_result best_result = {0};
+			iter = stage_iter_begin(TRANSFORM | STATIC_BODY | MESH);
+			while (stage_iter_next(&iter))
+			{
+				transform_component *world = scene_iter_get_component(&iter, TRANSFORM);
+				mesh_component *mesh = scene_iter_get_component(&iter, MESH);
+
+				struct intersect_result result = collision_ray_mesh(ray, mesh, world);
+				if (result.valid)
+				{
+					if (!best_result.valid || result.depth < best_result.depth)
+					{
+						best_result = result;
+						name = mesh->resource_ref->name;
+						camera->free.focus_entity = world->self;
+					}
+				}
+			}
+
+			if (best_result.valid)
+			{
+				trs sphere = trs_identity();
+				sphere.translation.v3 = best_result.position;
+				sphere.scale = v3_fill(.2f);
+				// draw_sphere(sphere, 5, 7, cRED);
+
+#if 1
+				v3 end;
+				glm_vec3_add(best_result.position.data, best_result.normal.data, end.data);
+				// draw_line_3D(best_result.position, end, cGREEN);
+			}
+
+			// draw_ray(ray, cPINK);
+		}
+		sm__debug_draw_3d();
+	}
+	renderer_batch3D_end();
+
+	renderer_batch_begin();
+	{
+		renderer_batch_sampler_set(str8_from("toshibasat8x8"));
+		renderer_batch_blend_set((struct blend_state){.enable = STATE_FALSE});
+		renderer_depth_set((struct depth_state){.enable = STATE_FALSE});
+		renderer_rasterizer_set((struct rasterizer_state){
+		    .cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK, .line_width = 1.0f});
+
+		v2 position = v2_new(256.0f / 2, (256.f / 2.0f) / 2.0f);
+		v2 size = v2_new(256, 256.f / 2.0f);
+		glm_vec2_scale(position.data, .5f, position.data);
+		glm_vec2_scale(size.data, .5f, size.data);
+		// draw_rectangle(position, size, 0.0f, cWHITE);
+		// draw_circle(position, 10, 0.0f, 360.0f, 36, cGREEN);
+		// DrawCircleSector(v2_fill(100), 20, 0, 360, 36, cBLUE);
+		sm__debug_draw_2d(ctx);
+
+		if (name.size > 0)
+		{
+			f32 scale = ctx->framebuffer_width / (f32)ctx->win_width;
+			draw_text(name, v2_new(10 * scale, 16 * scale), 16, cWHITE);
+		}
+	}
+	renderer_batch_end();
+#endif
+
+	return;
+
+#if 0
+	// camera_component *camera = stage_component_get_data(cam2_ett, CAMERA);
+	draw_begin_3d(camera);
+
+	iter = stage_iter_begin(TRANSFORM | MESH | MATERIAL);
+	while (stage_iter_next(&iter))
+	{
+		transform_component *transform = stage_iter_get_component(&iter, TRANSFORM);
+		mesh_component *mesh = stage_iter_get_component(&iter, MESH);
+		material_component *material = stage_iter_get_component(&iter, MATERIAL);
+
+		if (mesh->mesh_ref->flags & MESH_FLAG_BLEND)
+		{
+			blend.sort[blend.index].transform = transform;
+			blend.sort[blend.index].mesh = mesh;
+			blend.sort[blend.index].material = material;
+
+			// transform_component transform = transform_from_m4(world->matrix);
+
+			blend.sort[blend.index].dist =
+			    glm_vec3_distance(transform->matrix.v3.position.data, camera->position.data);
+
+			blend.index++;
+		}
+
+		else { draw_mesh(camera, mesh, material, transform->matrix); }
+	}
+
+	qsort(blend.sort, blend.index, sizeof(struct blend_sort), compare);
+
+	if (blend.index > 0)
+	{
+		renderer_begin_blend_mode(BLEND_MODE_ALPHA);
+		for (u32 i = 0; i < blend.index; ++i)
+		{
+			draw_mesh(camera, blend.sort[i].mesh, blend.sort[i].material, blend.sort[i].transform->matrix);
+		}
+		blend.index = 0;
+		renderer_end_blend_mode();
+	}
+
+	{
+		m4 view = camera_get_view(camera);
+
+		struct resource *resource = resource_get_by_name(str8_from("witch-finger"));
+		assert(resource);
+		assert(resource->type == RESOURCE_IMAGE);
+
+		draw_billboard(view, resource->image_data, v3_new(0.0f, 5.0f, 0.0f),
+		    v2_new(resource->image_data->width * 0.02f, resource->image_data->height * 0.02f), cWHITE);
+	}
+
+	static f32 scale = 1.0f;
+	scale += (core_key_pressed(KEY_L) - core_key_pressed(KEY_H)) * 0.005f;
+
+	draw_text_billboard_3d(camera, str8_from("hello"), v3_new(0.0f, 2.0f, 0.0), scale, cWHITE);
+
+#	if 0
+	trs c_t = trs_identity();
+	c_t.T.y = 2;
+	m4 camera_view = camera_get_view(camera);
+	glm_quat_forp(c_t.position.data, camera->position.data, v3_up().data, c_t.rotation.data);
+	{
+		enum cube_face cb = get_face_toward(c_t, camera->position);
+		if (cb == Left) { printf("LEFT\n"); }
+		else if (cb == Right) { printf("RIGHT\n"); }
+		else if (cb == Bottom) { printf("BOTTOM\n"); }
+		else if (cb == Top) { printf("TOP\n"); }
+		else if (cb == Back) { printf("BACK\n"); }
+		else if (cb == Front) { printf("FRONT\n"); }
+	}
+
+	draw_cube_wires(c_t, WHITE);
+	draw_cube(c_t, COLOR8);
+#	endif
+
+	sm__debug_draw_3d();
 
 	draw_end_3d();
 
-	// draw_rectangle(v2_zero(), v2_new(100, 100), 0, v4_new(1.0f, 1.0f, 1.0f, 1.0f));
+	draw_begin_3d(camera);
+	renderer_set_line_width(5.0f);
+	renderer_enable_smooth_lines();
+
+	draw_line_3D(v3_zero(), v3_right(), color_from_v3(v3_right()));
+	draw_line_3D(v3_zero(), v3_forward(), color_from_v3(v3_forward()));
+	draw_line_3D(v3_zero(), v3_up(), color_from_v3(v3_up()));
+
+	draw_end_3d();
+
+#endif
 }
 
 void

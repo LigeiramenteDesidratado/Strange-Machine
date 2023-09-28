@@ -12,12 +12,6 @@ static struct
 
 } mem_info = {0};
 
-size_t
-get_bytes_in_use(void)
-{
-	return (mem_info.bytes);
-}
-
 #define MM_HEADER_SIZE sizeof(size_t)
 
 void *mm_malloc(size_t size);
@@ -212,9 +206,9 @@ mm__human_readable_size(void)
 	static i8 buf[32] = {0};
 	double size = (double)mem_info.total_bytes;
 	if (size < KB(1)) sprintf(buf, "%.2f B", size);
-	else if (size < MB(1)) sprintf(buf, "%.2f KB", B2KBf(size));
-	else if (size < GB(1)) sprintf(buf, "%.2f MB", B2MBf(size));
-	else sprintf(buf, "%.2f GB", B2GBf(size));
+	else if (size < GB(1)) sprintf(buf, "%.2f MB", (f64)B2MBf((f32)size));
+	else if (size < MB(1)) sprintf(buf, "%.2f KB", (f64)B2KBf((f32)size));
+	else sprintf(buf, "%.2f GB", (f64)B2GBf((f32)size));
 
 	return buf;
 }

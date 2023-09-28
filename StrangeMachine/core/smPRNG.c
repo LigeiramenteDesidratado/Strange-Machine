@@ -6,10 +6,10 @@ static u64 state256[4] = {0x180ec6d33cfd0aba, 0xd5a61266f0c9392c, 0xa9582618e03f
 void
 prng_seed(u64 seed)
 {
-	state128[0] = seed ^ state128[0];
-	state128[0] = seed ^ state128[1];
-	state128[0] = seed ^ state128[2];
-	state128[0] = seed ^ state128[3];
+	state128[0] = (u32)seed ^ state128[0];
+	state128[0] = (u32)seed ^ state128[1];
+	state128[0] = (u32)seed ^ state128[2];
+	state128[0] = (u32)seed ^ state128[3];
 
 	state256[0] = seed ^ state256[0];
 	state256[0] = seed ^ state256[1];
@@ -29,7 +29,7 @@ rotl256(const u64 x, int k)
 	return (x << k) | (x >> (64 - k));
 }
 
-u64
+static u64
 next256pp(void)
 {
 	const u64 result = rotl256(state256[0] + state256[3], 23) + state256[0];
@@ -48,7 +48,7 @@ next256pp(void)
 	return (result);
 }
 
-u64
+static u64
 next256p(void)
 {
 	const u64 result = state256[0] + state256[3];
@@ -67,7 +67,7 @@ next256p(void)
 	return (result);
 }
 
-u32
+static u32
 next128pp(void)
 {
 	const u32 result = rotl128(state128[0] + state128[3], 7) + state128[0];
@@ -86,7 +86,7 @@ next128pp(void)
 	return (result);
 }
 
-u32
+static u32
 next128p(void)
 {
 	const u32 result = state128[0] + state128[3];
@@ -194,7 +194,7 @@ u64_min_max(u64 min, u64 max)
 {
 	u64 x = next256pp();
 
-	return (min + ((f64)x / (f64)UINT64_MAX) * (max - min));
+	return (u64)((f64)min + ((f64)x / (f64)UINT64_MAX) * (f64)(max - min));
 }
 
 i64
@@ -202,7 +202,7 @@ i64_min_max(i64 min, i64 max)
 {
 	u64 x = next256pp();
 
-	return (min + ((f64)x / (f64)UINT64_MAX) * (max - min));
+	return (i64)((f64)min + ((f64)x / (f64)UINT64_MAX) * (f64)(max - min));
 }
 
 u32
@@ -210,7 +210,7 @@ u32_min_max(u32 min, u32 max)
 {
 	u32 x = next128pp();
 
-	return (min + ((f32)x / (f32)UINT32_MAX) * (max - min));
+	return (u32)((f32)min + ((f32)x / (f32)UINT32_MAX) * (f32)(max - min));
 }
 
 i32
@@ -218,5 +218,37 @@ i32_min_max(i32 min, i32 max)
 {
 	u32 x = next128pp();
 
-	return (min + ((f32)x / (f32)UINT32_MAX) * (max - min));
+	return (i32)((f32)min + ((f32)x / (f32)UINT32_MAX) * (f32)(max - min));
+}
+
+u32
+u32_prng(void)
+{
+	u32 result = next128pp();
+
+	return (result);
+}
+
+i32
+i32_prng(void)
+{
+	i32 result = next128pp();
+
+	return (result);
+}
+
+u64
+u64_prng(void)
+{
+	u64 result = next256pp();
+
+	return (result);
+}
+
+i64
+i64_prng(void)
+{
+	i64 result = next256pp();
+
+	return (result);
 }

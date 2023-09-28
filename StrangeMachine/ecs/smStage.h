@@ -6,18 +6,22 @@
 #include "ecs/smScene.h"
 
 b8 stage_init(struct buf base_memory);
-void stage_teardown();
+void stage_teardown(void);
 
 void stage_do(struct ctx *ctx);
 
 void stage_set_main_camera(entity_t camera_entity);
-camera_component *stage_get_main_camera();
+camera_component *stage_get_main_camera(void);
+entity_t stage_get_main_camera_entity(void);
+
 void stage_set_gravity_force(v3 gravity_force);
-v3 stage_get_gravity_force();
+v3 stage_get_gravity_force(void);
 
 void stage_scene_new(str8 name);
 void stage_set_current_by_name(str8 name);
-void stage_scene_asset_load(str8 name);
+b8 stage_is_current_scene(str8 name);
+entity_t stage_scene_asset_load(str8 name);
+struct arena *stage_scene_get_arena(void);
 entity_t stage_animated_asset_load(str8 name);
 entity_t stage_entity_new(component_t archetype);
 void stage_entity_remove(entity_t entity);

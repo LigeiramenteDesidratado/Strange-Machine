@@ -22,7 +22,6 @@ struct stage
 	struct scene_object scenes_free;
 
 	struct scene_object *current;
-	struct scene_object *next;
 
 	struct scene_object scenes[8]; // max scenes
 };
@@ -38,7 +37,7 @@ stage_init(struct buf base_memory)
 	dll_init_sentinel(&SC.scenes_active);
 	dll_init_sentinel(&SC.scenes_free);
 
-	for (u32 i = 0; i < ARRAY_SIZE(SC.scenes); ++i) { dll_insert_back(&SC.scenes_free, &SC.scenes[i]); }
+	for (u32 i = 0; i < ARRAY_SIZE(SC.scenes); ++i) { dll_insert_back(&SC.scenes_free, SC.scenes + i); }
 
 	return (true);
 }
@@ -68,11 +67,19 @@ stage_set_main_camera(entity_t camera_entity)
 }
 
 camera_component *
-stage_get_main_camera()
+stage_get_main_camera(void)
 {
 	camera_component *result;
 	entity_t cam = scene_get_main_camera(&SC.current->scene);
 	result = scene_component_get_data(&SC.current->scene, cam, CAMERA);
+	return (result);
+}
+
+entity_t
+stage_get_main_camera_entity(void)
+{
+	entity_t result;
+	result = scene_get_main_camera(&SC.current->scene);
 	return (result);
 }
 
@@ -83,7 +90,7 @@ stage_set_gravity_force(v3 gravity_force)
 }
 
 v3
-stage_get_gravity_force()
+stage_get_gravity_force(void)
 {
 	v3 result;
 
@@ -92,8 +99,8 @@ stage_get_gravity_force()
 	return (result);
 }
 
-void
-stage_construct(struct scene_object *scene_obj)
+static void
+sm__stage_construct(struct scene_object *scene_obj)
 {
 	struct buf base_memory = {
 	    .data = arena_reserve(&SC.global_arena, SC.sub_arena_size), .size = SC.sub_arena_size};
@@ -119,7 +126,7 @@ stage_scene_new(str8 name)
 		dll_insert(&SC.scenes_active, n);
 		n->name = name;
 		SC.current = n;
-		stage_construct(SC.current);
+		sm__stage_construct(SC.current);
 
 		return;
 	}
@@ -143,16 +150,35 @@ stage_set_current_by_name(str8 name)
 	assert(0);
 }
 
-void
+b8
+stage_is_current_scene(str8 name)
+{
+	return str8_eq(name, SC.current->name);
+}
+
+entity_t
 stage_scene_asset_load(str8 name)
 {
 	return scene_load(&SC.current->arena, &SC.current->scene, name);
 }
 
+struct arena *
+stage_scene_get_arena(void)
+{
+	struct arena *result;
+
+	result = &SC.current->arena;
+
+	return (result);
+}
+
 entity_t
 stage_animated_asset_load(str8 name)
 {
+	(void)name;
 	// return scene_load_animated(&SC.current->arena, &SC.current->scene, name);
+
+	return (entity_t){0};
 }
 
 entity_t

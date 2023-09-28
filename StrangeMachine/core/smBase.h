@@ -153,5 +153,6 @@ sm__static_assert(sizeof(f64) == 8, "expected f64 to be 8 bytes");
 #define BIT64(x) (1ULL << (x))
 
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]))
+#define REF(_ref)	  _ref *
 
 #endif // SM_CORE_BASE_H

@@ -19,7 +19,11 @@ static f32 sm__track_hermite_scalar(f32 t, f32 p1, f32 s1, f32 _p2, f32 s2);
 static void sm__track_hermite_v3(f32 t, vec3 p1, vec3 s1, vec3 _p2, vec3 s2, vec3 out);
 static void sm__track_hermite_v4(f32 t, versor p1, versor s1, versor _p2, versor s2, versor out);
 
-f32
+static f32 track_sample_scalar(struct track *track, f32 time, bool looping);
+static void track_sample_vec3(struct track *track, f32 time, b8 looping, vec3 out);
+static void track_sample_v4(struct track *track, f32 time, b8 looping, versor out);
+
+static f32
 track_sample_scalar(struct track *track, f32 time, bool looping)
 {
 	assert(track);
@@ -35,7 +39,7 @@ track_sample_scalar(struct track *track, f32 time, bool looping)
 	return (0.0f);
 }
 
-void
+static void
 track_sample_vec3(struct track *track, f32 time, b8 looping, vec3 out)
 {
 	assert(track);
@@ -49,7 +53,7 @@ track_sample_vec3(struct track *track, f32 time, b8 looping, vec3 out)
 	}
 }
 
-void
+static void
 track_sample_v4(struct track *track, f32 time, b8 looping, versor out)
 {
 	switch (track->interpolation)
@@ -108,7 +112,7 @@ track_get_end_time(const struct track *track)
 	return (result);
 }
 
-f32
+static f32
 track_adjust_time(struct track *track, f32 t, b8 looping)
 {
 	f32 start_time;
@@ -766,16 +770,16 @@ transform_track_get_end_time(const struct transform_track *transform_track)
 	return (result);
 }
 
-struct trs
-transform_track_sample(struct transform_track *transform_track, struct trs *transform_ref, f32 time, b8 looping)
+trs
+transform_track_sample(struct transform_track *transform_track, trs *transform_ref, f32 time, b8 looping)
 {
 	assert(transform_track);
 
-	struct trs result = *transform_ref; // Assign default values
+	trs result = *transform_ref; // Assign default values
 
 	if (array_len(transform_track->position.frames_v3) > 1)
 	{
-		track_sample_vec3(&transform_track->position, time, looping, result.position.v3.data);
+		track_sample_vec3(&transform_track->position, time, looping, result.translation.v3.data);
 	}
 
 	if (array_len(transform_track->rotation.frames_v4) > 1)
@@ -815,8 +819,8 @@ clip_sample(struct clip_resource *clip, struct pose *pose, f32 t)
 	for (u32 i = 0; i < size; ++i)
 	{
 		u32 j = clip->tracks[i].id; // joint
-		struct trs local = pose_get_local_transform(pose, j);
-		struct trs animated = transform_track_sample(&clip->tracks[i], &local, t, clip->looping);
+		trs local = pose_get_local_transform(pose, j);
+		trs animated = transform_track_sample(&clip->tracks[i], &local, t, clip->looping);
 
 		pose->joints[j] = animated;
 	}
