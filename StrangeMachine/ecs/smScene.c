@@ -278,17 +278,6 @@ scene_set_gravity_force(struct scene *scene, v3 gravity)
 	return (old_gravity);
 }
 
-// void
-// scene_copy(struct scene *dest, struct scene *src)
-// {
-// 	if (dest == src) { return; }
-//
-// 	handle_pool_copy(&dest->indirect_handle_pool, &src->indirect_handle_pool);
-// 	array_copy(dest->indirect_access, src->indirect_access);
-// 	array_copy(dest->sys_info, src->sys_info);
-// 	array_copy(dest->component_handle_pool, src->component_handle_pool);
-// }
-
 entity_t
 scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype)
 {
