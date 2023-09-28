@@ -21,6 +21,7 @@ void stage_scene_new(str8 name);
 void stage_set_current_by_name(str8 name);
 b8 stage_is_current_scene(str8 name);
 entity_t stage_scene_asset_load(str8 name);
+struct scene *stage_get_current_scene(void);
 struct arena *stage_scene_get_arena(void);
 entity_t stage_animated_asset_load(str8 name);
 entity_t stage_entity_new(component_t archetype);

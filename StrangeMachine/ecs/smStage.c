@@ -172,6 +172,16 @@ stage_scene_get_arena(void)
 	return (result);
 }
 
+struct scene *
+stage_get_current_scene(void)
+{
+	struct scene *result;
+
+	result = &SC.current->scene;
+
+	return (result);
+}
+
 entity_t
 stage_animated_asset_load(str8 name)
 {

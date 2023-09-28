@@ -8,8 +8,9 @@
 void
 scene_make(struct arena *arena, struct scene *scene)
 {
-	handle_pool_make(arena, &scene->indirect_handle_pool, 8);
-	array_set_cap(arena, scene->indirect_access, scene->indirect_handle_pool.cap);
+	handle_pool_make(arena, &scene->nodes_handle_pool, 8);
+	// array_set_cap(arena, scene->indirect_access, scene->indirect_handle_pool.cap);
+	scene->nodes = arena_reserve(arena, sizeof(struct node) * scene->nodes_handle_pool.cap);
 	scene->arena = arena;
 	scene->component_handle_pool = 0;
 	scene->sys_info = 0;
@@ -27,8 +28,9 @@ scene_release(struct arena *arena, struct scene *scene)
 	}
 	array_release(arena, scene->component_handle_pool);
 
-	handle_pool_release(arena, &scene->indirect_handle_pool);
-	array_release(arena, scene->indirect_access);
+	handle_pool_release(arena, &scene->nodes_handle_pool);
+	// array_release(arena, scene->indirect_access);
+	arena_free(arena, scene->nodes);
 }
 
 static handle_t
@@ -36,10 +38,12 @@ sm__scene_indirect_access_new_handle(struct arena *arena, struct scene *scene)
 {
 	handle_t result;
 
-	result = handle_new(arena, &scene->indirect_handle_pool);
-	if (array_cap(scene->indirect_access) != scene->indirect_handle_pool.cap)
+	result = handle_new(arena, &scene->nodes_handle_pool);
+	if (scene->nodes_cap != scene->nodes_handle_pool.cap)
 	{
-		array_set_cap(arena, scene->indirect_access, scene->indirect_handle_pool.cap);
+		// array_set_cap(arena, scene->indirect_access, scene->indirect_handle_pool.cap);
+		scene->nodes =
+		    arena_resize(arena, scene->nodes, sizeof(struct node) * scene->nodes_handle_pool.cap);
 	}
 
 	return (result);
@@ -145,7 +149,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 			glm_vec3_copy(scale.data, transform->transform_local.scale.data);
 
 			u32 self_index = handle_index(self->ett.handle);
-			struct indirect_access *self_node = &scene->indirect_access[self_index];
+			struct node *self_node = &scene->nodes[self_index];
 			self_node->flags |= HIERARCHY_FLAG_DIRTY;
 			// transform->flags = TRANSFORM_FLAG_DIRTY;
 		}
@@ -225,7 +229,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		scene_entity_update_hierarchy(scene, self->ett);
 
 		u32 self_index = handle_index(self->ett.handle);
-		struct indirect_access *self_node = &scene->indirect_access[self_index];
+		struct node *self_node = &scene->nodes[self_index];
 		self_node->flags &= ~(u32)HIERARCHY_FLAG_DIRTY;
 	}
 
@@ -280,14 +284,14 @@ scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype
 			result.handle = sm__scene_indirect_access_new_handle(arena, scene);
 
 			u32 index = handle_index(result.handle);
-			scene->indirect_access[index].handle = component_handle;
-			scene->indirect_access[index].component_pool_index = i;
-			scene->indirect_access[index].archetype = archetype;
+			scene->nodes[index].handle = component_handle;
+			scene->nodes[index].component_pool_index = i;
+			scene->nodes[index].archetype = archetype;
 
-			scene->indirect_access[index].self = result;
-			scene->indirect_access[index].parent.handle = INVALID_HANDLE;
-			scene->indirect_access[index].children = 0;
-			scene->indirect_access[index].flags = 0;
+			scene->nodes[index].self = result;
+			scene->nodes[index].parent.handle = INVALID_HANDLE;
+			scene->nodes[index].children = 0;
+			scene->nodes[index].flags = 0;
 
 			return (result);
 		}
@@ -305,14 +309,14 @@ scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype
 	result.handle = sm__scene_indirect_access_new_handle(arena, scene);
 	u32 index = handle_index(result.handle);
 
-	scene->indirect_access[index].handle = component_handle;
-	scene->indirect_access[index].component_pool_index = component_index;
-	scene->indirect_access[index].archetype = archetype;
+	scene->nodes[index].handle = component_handle;
+	scene->nodes[index].component_pool_index = component_index;
+	scene->nodes[index].archetype = archetype;
 
-	scene->indirect_access[index].self = result;
-	scene->indirect_access[index].parent.handle = INVALID_HANDLE;
-	scene->indirect_access[index].children = 0;
-	scene->indirect_access[index].flags = 0;
+	scene->nodes[index].self = result;
+	scene->nodes[index].parent.handle = INVALID_HANDLE;
+	scene->nodes[index].children = 0;
+	scene->nodes[index].flags = 0;
 
 	return (result);
 }
@@ -320,19 +324,19 @@ scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype
 void
 scene_entity_remove(struct scene *scene, entity_t entity)
 {
-	assert(handle_valid(&scene->indirect_handle_pool, entity.handle));
+	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->indirect_handle_pool.cap);
+	assert(index < scene->nodes_handle_pool.cap);
 
-	handle_t ett = scene->indirect_access[index].handle;
-	u32 comp_pool_index = scene->indirect_access[index].component_pool_index;
+	handle_t ett = scene->nodes[index].handle;
+	u32 comp_pool_index = scene->nodes[index].component_pool_index;
 
 	struct component_pool *comp_pool = &scene->component_handle_pool[comp_pool_index];
 
 	component_pool_handle_remove(comp_pool, ett);
 
-	handle_remove(&scene->indirect_handle_pool, entity.handle);
+	handle_remove(&scene->nodes_handle_pool, entity.handle);
 }
 
 b8
@@ -340,14 +344,14 @@ scene_entity_is_valid(struct scene *scene, entity_t entity)
 {
 	b8 result;
 
-	result = handle_valid(&scene->indirect_handle_pool, entity.handle);
+	result = handle_valid(&scene->nodes_handle_pool, entity.handle);
 	if (!result) { return (result); }
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->indirect_handle_pool.cap);
+	assert(index < scene->nodes_handle_pool.cap);
 
-	handle_t ett = scene->indirect_access[index].handle;
-	u32 comp_pool_index = scene->indirect_access[index].component_pool_index;
+	handle_t ett = scene->nodes[index].handle;
+	u32 comp_pool_index = scene->nodes[index].component_pool_index;
 
 	struct component_pool *comp_pool = &scene->component_handle_pool[comp_pool_index];
 
@@ -361,12 +365,12 @@ scene_entity_has_components(struct scene *scene, entity_t entity, component_t co
 {
 	b8 result;
 
-	assert(handle_valid(&scene->indirect_handle_pool, entity.handle));
+	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->indirect_handle_pool.cap);
+	assert(index < scene->nodes_handle_pool.cap);
 
-	component_t archetype = scene->indirect_access[index].archetype;
+	component_t archetype = scene->nodes[index].archetype;
 
 	result = (archetype & components) == components;
 
@@ -376,13 +380,13 @@ scene_entity_has_components(struct scene *scene, entity_t entity, component_t co
 void
 scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t entity, component_t components)
 {
-	assert(handle_valid(&scene->indirect_handle_pool, entity.handle));
+	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	const u32 indirect_index = handle_index(entity.handle);
-	const component_t old_archetype = scene->indirect_access[indirect_index].archetype;
+	const component_t old_archetype = scene->nodes[indirect_index].archetype;
 
-	const handle_t old_handle = scene->indirect_access[indirect_index].handle;
-	const u32 old_component_pool_index = scene->indirect_access[indirect_index].component_pool_index;
+	const handle_t old_handle = scene->nodes[indirect_index].handle;
+	const u32 old_component_pool_index = scene->nodes[indirect_index].component_pool_index;
 
 	if (old_archetype & components)
 	{
@@ -398,9 +402,9 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 		{
 			new_handle = component_pool_handle_new(arena, &scene->component_handle_pool[i]);
 
-			scene->indirect_access[indirect_index].handle = new_handle;
-			scene->indirect_access[indirect_index].component_pool_index = i;
-			scene->indirect_access[indirect_index].archetype = new_archetype;
+			scene->nodes[indirect_index].handle = new_handle;
+			scene->nodes[indirect_index].component_pool_index = i;
+			scene->nodes[indirect_index].archetype = new_archetype;
 
 			break;
 		}
@@ -416,9 +420,9 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 
 		new_handle = component_pool_handle_new(arena, &scene->component_handle_pool[component_index]);
 
-		scene->indirect_access[indirect_index].handle = new_handle;
-		scene->indirect_access[indirect_index].component_pool_index = component_index;
-		scene->indirect_access[indirect_index].archetype = new_archetype;
+		scene->nodes[indirect_index].handle = new_handle;
+		scene->nodes[indirect_index].component_pool_index = component_index;
+		scene->nodes[indirect_index].archetype = new_archetype;
 	}
 	assert(new_handle != INVALID_HANDLE);
 
@@ -426,7 +430,7 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 	u32 old_index = handle_index(old_handle);
 	struct component_pool *old_comp_pool = &scene->component_handle_pool[old_component_pool_index];
 	struct component_pool *new_comp_pool =
-	    &scene->component_handle_pool[scene->indirect_access[indirect_index].component_pool_index];
+	    &scene->component_handle_pool[scene->nodes[indirect_index].component_pool_index];
 
 	for (u64 i = 1; (i - 1) < UINT64_MAX; i <<= 1)
 	{
@@ -458,20 +462,39 @@ void *
 scene_component_get_data(struct scene *scene, entity_t entity, component_t component)
 {
 	void *result;
-	assert(handle_valid(&scene->indirect_handle_pool, entity.handle));
+	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->indirect_handle_pool.cap);
-	assert(scene->indirect_access[index].archetype & component);
+	assert(index < scene->nodes_handle_pool.cap);
+	assert(scene->nodes[index].archetype & component);
 
-	handle_t ett = scene->indirect_access[index].handle;
-	u32 comp_pool_index = scene->indirect_access[index].component_pool_index;
+	handle_t ett = scene->nodes[index].handle;
+	u32 comp_pool_index = scene->nodes[index].component_pool_index;
 
 	struct component_pool *comp_pool = &scene->component_handle_pool[comp_pool_index];
 
 	result = component_pool_get_data(comp_pool, ett, component);
 
 	return (result);
+}
+
+void
+scene_entity_set_dirty(struct scene *scene, entity_t entity, b8 dirty)
+{
+	u32 entity_index = handle_index(entity.handle);
+	struct node *entity_node = &scene->nodes[entity_index];
+
+	if (dirty) { entity_node->flags |= (u32)HIERARCHY_FLAG_DIRTY; }
+	else { entity_node->flags &= ~(u32)HIERARCHY_FLAG_DIRTY; }
+}
+
+b8
+scene_entity_is_dirty(struct scene *scene, entity_t entity)
+{
+	u32 entity_index = handle_index(entity.handle);
+	struct node *entity_node = &scene->nodes[entity_index];
+
+	return (entity_node->flags & HIERARCHY_FLAG_DIRTY);
 }
 
 void
@@ -485,7 +508,7 @@ scene_entity_update_hierarchy(struct scene *scene, entity_t self)
 	self_transform->matrix_local = trs_to_m4(self_transform->transform_local);
 
 	u32 self_index = handle_index(self.handle);
-	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	struct node *self_node = &scene->nodes[self_index];
 
 	// Compute world transform
 	if (self_node->parent.handle)
@@ -508,13 +531,13 @@ b8
 scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entity)
 {
 	u32 self_index = handle_index(self.handle);
-	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	struct node *self_node = &scene->nodes[self_index];
 
 	if (self_node->parent.handle != INVALID_HANDLE) { return (false); }
 	if (self_node->parent.handle == entity.handle) { return (true); }
 
 	u32 entity_index = handle_index(entity.handle);
-	struct indirect_access *entity_node = &scene->indirect_access[entity_index];
+	struct node *entity_node = &scene->nodes[entity_index];
 
 	for (u32 i = 0; i < array_len(entity_node->children); ++i)
 	{
@@ -540,9 +563,9 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 	}
 
 	u32 self_index = handle_index(self.handle);
-	assert(self_index < scene->indirect_handle_pool.cap);
-	assert(scene->indirect_access[self_index].archetype & TRANSFORM);
-	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	assert(self_index < scene->nodes_handle_pool.cap);
+	assert(scene->nodes[self_index].archetype & TRANSFORM);
+	struct node *self_node = &scene->nodes[self_index];
 
 	if (self_node->parent.handle == new_parent.handle) { return; }
 
@@ -554,9 +577,9 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 			entity_t motherless = self_node->children[i];
 
 			u32 motherless_index = handle_index(motherless.handle);
-			assert(motherless_index < scene->indirect_handle_pool.cap);
-			assert(scene->indirect_access[motherless_index].archetype & TRANSFORM);
-			struct indirect_access *motherless_node = &scene->indirect_access[motherless_index];
+			assert(motherless_index < scene->nodes_handle_pool.cap);
+			assert(scene->nodes[motherless_index].archetype & TRANSFORM);
+			struct node *motherless_node = &scene->nodes[motherless_index];
 			motherless_node->parent = self_node->parent;
 		}
 
@@ -568,9 +591,9 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 		entity_t parent_entity = self_node->parent;
 
 		u32 parent_index = handle_index(parent_entity.handle);
-		assert(parent_index < scene->indirect_handle_pool.cap);
-		assert(scene->indirect_access[parent_index].archetype & TRANSFORM);
-		struct indirect_access *parent_node = &scene->indirect_access[parent_index];
+		assert(parent_index < scene->nodes_handle_pool.cap);
+		assert(scene->nodes[parent_index].archetype & TRANSFORM);
+		struct node *parent_node = &scene->nodes[parent_index];
 
 		i32 new_self_index = -1;
 		for (u32 i = 0; i < array_len(parent_node->children); ++i)
@@ -592,7 +615,7 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 		b8 is_child = false;
 
 		u32 new_parent_index = handle_index(new_parent.handle);
-		struct indirect_access *new_parent_node = &scene->indirect_access[new_parent_index];
+		struct node *new_parent_node = &scene->nodes[new_parent_index];
 
 		for (u32 i = 0; i < array_len(new_parent_node->children); ++i)
 		{
@@ -633,7 +656,7 @@ void
 scene_entity_set_position(struct scene *scene, entity_t self, v3 position)
 {
 	u32 self_index = handle_index(self.handle);
-	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	struct node *self_node = &scene->nodes[self_index];
 
 	if (self_node->parent.handle == INVALID_HANDLE) { scene_entity_set_position_local(scene, self, position); }
 	else
@@ -663,7 +686,7 @@ void
 scene_entity_set_rotation(struct scene *scene, entity_t self, v4 rotation)
 {
 	u32 self_index = handle_index(self.handle);
-	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	struct node *self_node = &scene->nodes[self_index];
 
 	if (self_node->parent.handle == INVALID_HANDLE) { scene_entity_set_rotation_local(scene, self, rotation); }
 	else
@@ -698,7 +721,7 @@ void
 scene_entity_translate(struct scene *scene, entity_t self, v3 delta)
 {
 	u32 self_index = handle_index(self.handle);
-	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	struct node *self_node = &scene->nodes[self_index];
 	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
 
 	if (self_node->parent.handle == INVALID_HANDLE)
@@ -725,7 +748,7 @@ void
 scene_entity_rotate(struct scene *scene, entity_t self, v4 delta)
 {
 	u32 self_index = handle_index(self.handle);
-	struct indirect_access *self_node = &scene->indirect_access[self_index];
+	struct node *self_node = &scene->nodes[self_index];
 	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
 
 	if (self_node->parent.handle == INVALID_HANDLE)
@@ -780,6 +803,7 @@ scene_iter_begin(struct scene *scene, component_t constraint)
 	result.comp_pool_index = 0;
 	result.comp_pool_ref = 0;
 	result.first_iter = true;
+	result.scene_ref = scene;
 
 	for (u32 i = result.comp_pool_index; i < array_len(scene->component_handle_pool); ++i)
 	{
@@ -855,6 +879,34 @@ scene_iter_get_component(struct scene_iter *iter, component_t component)
 	return (result);
 }
 
+entity_t
+scene_iter_get_entity(struct scene_iter *iter)
+{
+	entity_t result = {INVALID_HANDLE};
+
+	struct node *nodes = iter->scene_ref->nodes;
+	const struct scene *scene = iter->scene_ref;
+
+	for (u32 i = 0; i < scene->nodes_handle_pool.len; ++i)
+	{
+		handle_t entity_handle = handle_at(&scene->nodes_handle_pool, i);
+		u32 index = handle_index(entity_handle);
+		if (nodes[index].archetype == iter->comp_pool_ref->archetype)
+		{
+			handle_t handle = handle_at(&iter->comp_pool_ref->handle_pool, iter->index);
+			if (nodes[index].handle == handle)
+			{
+				result.handle = entity_handle;
+				break;
+			}
+		}
+	}
+
+	assert(result.handle != INVALID_HANDLE);
+
+	return (result);
+}
+
 void
 scene_system_run(struct arena *arena, struct scene *scene, struct ctx *ctx)
 {
@@ -873,12 +925,12 @@ scene_system_run(struct arena *arena, struct scene *scene, struct ctx *ctx)
 void
 scene_print_archeype(struct arena *arena, struct scene *scene, entity_t entity)
 {
-	assert(handle_valid(&scene->indirect_handle_pool, entity.handle));
+	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->indirect_handle_pool.cap);
+	assert(index < scene->nodes_handle_pool.cap);
 
-	component_t archetype = scene->indirect_access[index].archetype;
+	component_t archetype = scene->nodes[index].archetype;
 	b8 first = true;
 
 	for (u64 i = 1; (i - 1) < UINT64_MAX; i <<= 1)

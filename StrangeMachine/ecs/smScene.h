@@ -19,7 +19,7 @@ typedef struct entity
 	handle_t handle;
 } entity_t;
 
-struct indirect_access
+struct node
 {
 	entity_t self;
 
@@ -43,8 +43,9 @@ struct indirect_access
 struct scene
 {
 	struct arena *arena;
-	struct handle_pool indirect_handle_pool;
-	array(struct indirect_access) indirect_access;
+	struct handle_pool nodes_handle_pool;
+	u32 nodes_cap;
+	struct node *nodes;
 
 	array(struct system_info) sys_info;
 	array(struct component_pool) component_handle_pool;
@@ -76,6 +77,8 @@ b8 scene_entity_has_components(struct scene *scene, entity_t entity, component_t
 void scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t entity, component_t components);
 void *scene_component_get_data(struct scene *scene, entity_t entity, component_t component);
 
+void scene_entity_set_dirty(struct scene *scene, entity_t entity, b8 dirty);
+b8 scene_entity_is_dirty(struct scene *scene, entity_t entity);
 void scene_entity_update_hierarchy(struct scene *scene, entity_t self);
 b8 scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entity);
 void scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent);
@@ -92,16 +95,18 @@ void scene_system_register(struct arena *arena, struct scene *scene, str8 name, 
 struct scene_iter scene_iter_begin(struct scene *scene, component_t constraint);
 b8 scene_iter_next(struct scene *scene, struct scene_iter *iter);
 void *scene_iter_get_component(struct scene_iter *iter, component_t component);
+entity_t scene_iter_get_entity(struct scene_iter *iter);
 void scene_system_run(struct arena *arena, struct scene *scene, struct ctx *ctx);
 
 struct scene_iter
 {
+	REF(const struct scene) scene_ref;
 	b8 first_iter;
 	component_t constraint;
 	u32 comp_pool_index;
 
 	u32 index;
-	const struct component_pool *comp_pool_ref;
+	REF(const struct component_pool) comp_pool_ref;
 };
 
 struct scene_iter scene_iter_begin(struct scene *scene, component_t constraint);
