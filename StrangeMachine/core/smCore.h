@@ -227,10 +227,10 @@ void *sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, 
 
 // Doubly linked list
 // thanks to Mr. 4th Programming
-struct node
+struct DLLnode
 {
-	struct node *next;
-	struct node *prev;
+	struct DLLnode *next;
+	struct DLLnode *prev;
 };
 
 #define dll_init_sentinel_NP_(s, next, prev)  s->next = s, s->prev = s
@@ -279,15 +279,15 @@ i32 i32_prng(void);
 u64 u64_prng(void);
 i64 i64_prng(void);
 
-#define prng_min_max(MIN, MAX)          \
-	_Generic((MIN), u32             \
-		 : u32_min_max, u64     \
-		 : u64_min_max, i32     \
-		 : i32_min_max, i64     \
-		 : i64_min_max, f32     \
-		 : f32_min_max, f64     \
-		 : f64_min_max, default \
-		 : i32_min_max)(MIN, MAX)
+#define prng_min_max(MIN, MAX) \
+	_Generic((MIN),        \
+	    u32: u32_min_max,  \
+	    u64: u64_min_max,  \
+	    i32: i32_min_max,  \
+	    i64: i64_min_max,  \
+	    f32: f32_min_max,  \
+	    f64: f64_min_max,  \
+	    default: i32_min_max)(MIN, MAX)
 
 // Initialize core
 struct core_init
