@@ -711,7 +711,7 @@ sm__resource_read(str8 resource_name, struct resource *resource)
 	}
 	// clang-format on
 
-	log_trace(str8_from("file read succesfully: {s}"), resource->name);
+	log_trace(str8_from("[{s}] resource file read succesfully"), resource->name);
 
 	return (true);
 }
@@ -736,7 +736,7 @@ sm__resource_prefetch(str8 resource_name)
 
 	struct resource *result = resource_push(&resource);
 
-	log_trace(str8_from("file header read succesfully: {s}"), result->name);
+	log_trace(str8_from("[{s}] resource header read succesfully"), result->name);
 
 	return (result);
 }

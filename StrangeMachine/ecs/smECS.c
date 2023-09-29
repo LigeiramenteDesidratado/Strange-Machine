@@ -98,9 +98,7 @@ component_pool_generate_view(struct component_pool *comp_pool, component_t arche
 			size += ctable_components[index].size;
 		}
 	}
-	log_trace(str8_from("Bsize: {u3d}"), size);
 	comp_pool->size = (size + 0xFUL) & ~(0xFUL);
-	log_trace(str8_from("Asize: {u3d}"), comp_pool->size);
 }
 
 void
@@ -110,9 +108,7 @@ component_pool_make(struct arena *arena, struct component_pool *comp_pool, u32 c
 	comp_pool->archetype = archetype;
 	component_pool_generate_view(comp_pool, archetype);
 	comp_pool->cap = capacity;
-	ecs_manager_print_archeype(arena, archetype);
 	comp_pool->data = arena_aligned(arena, 16, comp_pool->size * capacity);
-	log_trace(str8_from("data ptr: 0x{u6x}"), comp_pool->data);
 }
 
 void

@@ -41,9 +41,7 @@ sm__scene_indirect_access_new_handle(struct arena *arena, struct scene *scene)
 	result = handle_new(arena, &scene->nodes_handle_pool);
 	if (scene->nodes_cap != scene->nodes_handle_pool.cap)
 	{
-		// array_set_cap(arena, scene->indirect_access, scene->indirect_handle_pool.cap);
-		scene->nodes =
-		    arena_resize(arena, scene->nodes, sizeof(struct node) * scene->nodes_handle_pool.cap);
+		scene->nodes = arena_resize(arena, scene->nodes, sizeof(struct node) * scene->nodes_handle_pool.cap);
 	}
 
 	return (result);
@@ -131,7 +129,6 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		struct child_parent_hierarchy *self = &nodes_hierarchy[i];
 
 		transform_component *transform = scene_component_get_data(scene, self->ett, TRANSFORM);
-		log_trace(str8_from("transform ptr: 0x{u6x}"), transform);
 		{
 			transform->matrix_local = m4_identity();
 
