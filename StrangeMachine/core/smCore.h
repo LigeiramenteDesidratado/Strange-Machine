@@ -89,6 +89,7 @@ void base_memory_reset(void);
 
 struct arena
 {
+	struct mutex mutex;
 	struct buf base_memory;
 
 	void *tlsf;

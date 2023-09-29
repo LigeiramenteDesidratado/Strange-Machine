@@ -41,6 +41,7 @@ sm__arena_make(struct arena *alloc, struct buf base_memory, str8 file, u32 line)
 		exit(1);
 	}
 
+	sync_mutex_init(&alloc->mutex);
 	alloc->base_memory = base_memory;
 	alloc->tlsf = tlsf;
 	alloc->tlsf_pool = tlsf_pool;
@@ -54,6 +55,7 @@ sm__arena_release(struct arena *alloc, sm__maybe_unused str8 file, sm__maybe_unu
 
 	// free(alloc->_tlsf_mem);
 	// free(alloc->mem);
+	sync_mutex_release(&alloc->mutex);
 
 	*alloc = (struct arena){0};
 }
@@ -62,6 +64,7 @@ void *
 sm__arena_malloc(struct arena *alloc, u32 size, str8 file, u32 line)
 {
 	void *result = 0;
+	sync_mutex_lock(&alloc->mutex);
 	result = tlsf_malloc(alloc->tlsf, size);
 	if (result == 0)
 	{
@@ -70,6 +73,7 @@ sm__arena_malloc(struct arena *alloc, u32 size, str8 file, u32 line)
 		    str8_from("OOM: error while allocating memory. Consider increasing the arena size"));
 		exit(1);
 	}
+	sync_mutex_unlock(&alloc->mutex);
 
 	return (result);
 }
@@ -79,6 +83,7 @@ sm__arena_realloc(struct arena *alloc, void *ptr, u32 size, str8 file, u32 line)
 {
 	void *result = 0;
 
+	sync_mutex_lock(&alloc->mutex);
 	result = tlsf_realloc(alloc->tlsf, ptr, size);
 	if (result == 0)
 	{
@@ -87,6 +92,7 @@ sm__arena_realloc(struct arena *alloc, void *ptr, u32 size, str8 file, u32 line)
 		    str8_from("OOM: error while reallocating memory. Consider increasing the arena size"));
 		exit(1);
 	}
+	sync_mutex_unlock(&alloc->mutex);
 
 	return (result);
 }
@@ -95,6 +101,7 @@ void *
 sm__arena_aligned(struct arena *alloc, u32 align, u32 size, str8 file, u32 line)
 {
 	void *result = 0;
+	sync_mutex_lock(&alloc->mutex);
 	result = tlsf_memalign(alloc->tlsf, align, size);
 	if (result == 0)
 	{
@@ -102,6 +109,7 @@ sm__arena_aligned(struct arena *alloc, u32 align, u32 size, str8 file, u32 line)
 		    str8_from("OOM: error while allocating aligned memory. Consider increasing the arena size"));
 		exit(1);
 	}
+	sync_mutex_unlock(&alloc->mutex);
 
 	return (result);
 }
@@ -109,7 +117,9 @@ sm__arena_aligned(struct arena *alloc, u32 align, u32 size, str8 file, u32 line)
 void
 sm__arena_free(struct arena *alloc, void *ptr, sm__maybe_unused str8 file, sm__maybe_unused u32 line)
 {
+	sync_mutex_lock(&alloc->mutex);
 	tlsf_free(alloc->tlsf, ptr);
+	sync_mutex_unlock(&alloc->mutex);
 }
 
 void
