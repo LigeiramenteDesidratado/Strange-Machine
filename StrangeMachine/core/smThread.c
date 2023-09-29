@@ -197,7 +197,7 @@ sync_semaphore_init(struct semaphore *sem)
 {
 	struct sm__semaphore *_sem = (struct sm__semaphore *)sem->data;
 	_sem->handle = dispatch_semaphore_create(0);
-	assert(_sem->handle != NULL && "dispatch_semaphore_create failed");
+	sm__assertf(_sem->handle != NULL, "dispatch_semaphore_create failed");
 }
 
 void
@@ -267,9 +267,9 @@ thread_create(struct arena *arena, thread_cb *callback, void *user_data1, i32 st
 
 	pthread_attr_t attr;
 	i32 r = pthread_attr_init(&attr);
-	assert(r == 0 && "pthread_attr_init failed");
+	sm__assertf(r == 0, "pthread_attr_init failed");
 	r = pthread_attr_setstacksize(&attr, thrd->stack_sz);
-	assert(r == 0 && "pthread_attr_setstacksize failed");
+	sm__assertf(r == 0, "pthread_attr_setstacksize failed");
 
 #	if SM_PLATFORM_APPLE
 	thrd->name = (str8){0};
@@ -277,7 +277,7 @@ thread_create(struct arena *arena, thread_cb *callback, void *user_data1, i32 st
 #	endif
 
 	r = pthread_create(&thrd->handle, &attr, thread_fn, thrd);
-	assert(r == 0 && "pthread_create failed");
+	sm__assertf(r == 0, "pthread_create failed");
 
 	// Ensure that thread callback is running
 	sync_semaphore_wait(&thrd->sem, -1);
@@ -292,7 +292,7 @@ thread_create(struct arena *arena, thread_cb *callback, void *user_data1, i32 st
 i32
 thread_destroy(struct thread *thrd, struct arena *arena)
 {
-	assert(thrd->running && "Thread is not running!");
+	sm__assertf(thrd->running, "Thread is not running!");
 
 	union
 	{
@@ -351,10 +351,10 @@ sync_mutex_init(struct mutex *mutex)
 
 	pthread_mutexattr_t attr;
 	i32 r = pthread_mutexattr_init(&attr);
-	assert(r == 0);
+	sm__assert(r == 0);
 	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 	r = pthread_mutex_init(&_m->handle, &attr);
-	assert(r == 0 && "pthread_mutex_init failed");
+	sm__assertf(r == 0, "pthread_mutex_init failed");
 }
 
 void
@@ -412,10 +412,10 @@ sync_signal_init(struct signal *sig)
 	struct sm__signal *_sig = (struct sm__signal *)sig->data;
 	_sig->value = 0;
 	i32 r = pthread_mutex_init(&_sig->mutex, NULL);
-	assert(r == 0 && "pthread_mutex_init failed");
+	sm__assertf(r == 0, "pthread_mutex_init failed");
 
 	r = pthread_cond_init(&_sig->cond, NULL);
-	assert(r == 0 && "pthread_cond_init failed");
+	sm__assertf(r == 0, "pthread_cond_init failed");
 }
 
 void
@@ -431,7 +431,7 @@ sync_signal_raise(struct signal *sig)
 {
 	struct sm__signal *_sig = (struct sm__signal *)sig->data;
 	i32 r = pthread_mutex_lock(&_sig->mutex);
-	assert(r == 0);
+	sm__assert(r == 0);
 	_sig->value = 1;
 	pthread_mutex_unlock(&_sig->mutex);
 	pthread_cond_signal(&_sig->cond);
@@ -442,7 +442,7 @@ sync_signal_wait(struct signal *sig, i32 msecs)
 {
 	struct sm__signal *_sig = (struct sm__signal *)sig->data;
 	i32 r = pthread_mutex_lock(&_sig->mutex);
-	assert(r == 0);
+	sm__assert(r == 0);
 
 	if (msecs == -1) { r = pthread_cond_wait(&_sig->cond, &_sig->mutex); }
 	else
@@ -467,10 +467,10 @@ sync_semaphore_init(struct semaphore *sem)
 	struct sm__semaphore *_sem = (struct sm__semaphore *)sem->data;
 	_sem->count = 0;
 	i32 r = pthread_mutex_init(&_sem->mutex, NULL);
-	assert(r == 0 && "pthread_mutex_init failed");
+	sm__assertf(r == 0, "pthread_mutex_init failed");
 
 	r = pthread_cond_init(&_sem->cond, NULL);
-	assert(r == 0 && "pthread_cond_init failed");
+	sm__assertf(r == 0, "pthread_cond_init failed");
 }
 
 void
@@ -486,17 +486,17 @@ sync_semaphore_post(struct semaphore *sem, i32 count)
 {
 	struct sm__semaphore *_sem = (struct sm__semaphore *)sem->data;
 	i32 r = pthread_mutex_lock(&_sem->mutex);
-	assert(r == 0);
+	sm__assert(r == 0);
 
 	for (i32 ii = 0; ii < count; ii++)
 	{
 		r = pthread_cond_signal(&_sem->cond);
-		assert(r == 0);
+		sm__assert(r == 0);
 	}
 
 	_sem->count += count;
 	r = pthread_mutex_unlock(&_sem->mutex);
-	assert(r == 0);
+	sm__assert(r == 0);
 }
 
 b8
@@ -504,7 +504,7 @@ sync_semaphore_wait(struct semaphore *sem, i32 msecs)
 {
 	struct sm__semaphore *_sem = (struct sm__semaphore *)sem->data;
 	i32 r = pthread_mutex_lock(&_sem->mutex);
-	assert(r == 0);
+	sm__assert(r == 0);
 
 	if (msecs == -1)
 	{
@@ -567,7 +567,7 @@ sync_semaphore_init(struct semaphore *sem)
 {
 	struct sm__semaphore *_sem = (struct sm__semaphore *)sem->data;
 	_sem->handle = CreateSemaphoreA(NULL, 0, LONG_MAX, NULL);
-	assert(_sem->handle != NULL && "Failed to create semaphore");
+	sm__assertf(_sem->handle != NULL, "Failed to create semaphore");
 }
 
 void
@@ -600,12 +600,12 @@ sync_signal_init(struct signal *sig)
 	struct sm__signal *_sig = (struct sm__signal *)sig->data;
 #	if _WIN32_WINNT >= 0x0600
 	BOOL r = InitializeCriticalSectionAndSpinCount(&_sig->mutex, 32);
-	assert(r && "InitializeCriticalSectionAndSpinCount failed");
+	sm__assertf(r, "InitializeCriticalSectionAndSpinCount failed");
 	InitializeConditionVariable(&_sig->cond);
 	_sig->value = 0;
 #	else
 	_sig->e = CreateEvent(NULL, FALSE, FALSE, NULL);
-	assert(_sig->e && "CreateEvent failed");
+	sm__assertf(_sig->e, "CreateEvent failed");
 #	endif
 }
 
@@ -684,7 +684,7 @@ thread_create(struct arena *arena, thread_cb *callback, void *user_data1, i32 st
 	thrd->running = true;
 
 	thrd->handle = CreateThread(NULL, thrd->stack_sz, (LPTHREAD_START_ROUTINE)thread_fn, thrd, 0, NULL);
-	assert(thrd->handle != NULL && "CreateThread failed");
+	sm__assert(thrd->handle != NULL, "CreateThread failed");
 
 	// Ensure that thread callback is running
 	sync_semaphore_wait(&thrd->sem, -1);
@@ -697,8 +697,8 @@ thread_create(struct arena *arena, thread_cb *callback, void *user_data1, i32 st
 i32
 thread_destroy(struct thread *thrd, struct arena *arena)
 {
-	assert(thrd);
-	assert(thrd->running && "Thread is not running!");
+	sm__assert(thrd);
+	sm__assertf(thrd->running, "Thread is not running!");
 
 	DWORD exit_code;
 	WaitForSingleObject(thrd->handle, INFINITE);
@@ -783,6 +783,6 @@ thread_tid(void)
 #elif SM_PLATFORM_HURD
 	return (pthread_t)pthread_self();
 #else
-	assertf(0 && "Tid not implemented");
+	sm__assertf(0, "Tid not implemented");
 #endif // SM_PLATFORM_
 }

@@ -350,7 +350,7 @@ str_buf_append_char(struct arena *arena, struct str8_buf *str_buf, i8 c)
 void
 str_buf_insert(struct arena *arena, struct str8_buf *str_buf, str8 string, u32 index)
 {
-	assert(index <= str_buf->len);
+	sm__assert(index <= str_buf->len);
 
 	sm__str8_buf_grow_if(arena, str_buf, string.size);
 
@@ -366,8 +366,8 @@ str_buf_insert(struct arena *arena, struct str8_buf *str_buf, str8 string, u32 i
 void
 str_buf_replace_insert(struct arena *arena, struct str8_buf *str_buf, str8 string, u32 index, u32 replace)
 {
-	assert(index <= str_buf->len);
-	assert(index + replace <= str_buf->len);
+	sm__assert(index <= str_buf->len);
+	sm__assert(index + replace <= str_buf->len);
 
 	sm__str8_buf_grow_if(arena, str_buf, string.size);
 

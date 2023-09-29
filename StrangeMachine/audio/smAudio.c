@@ -126,7 +126,7 @@ sm__physfs_vfs_open(sm__maybe_unused ma_vfs *vfs, const i8 *file_path, ma_uint32
 
 	if ((open_mode & MA_OPEN_MODE_READ) != 0)
 	{
-		assert((open_mode & MA_OPEN_MODE_WRITE) == 0);
+		sm__assert((open_mode & MA_OPEN_MODE_WRITE) == 0);
 		*f = fs_file_open_read_cstr(file_path);
 	}
 	else { *f = fs_file_open_write_cstr(file_path); }
@@ -141,7 +141,7 @@ sm__physfs_vfs_open(sm__maybe_unused ma_vfs *vfs, const i8 *file_path, ma_uint32
 static ma_result
 sm__physfs_vfs_close(sm__maybe_unused ma_vfs *pVFS, ma_vfs_file file)
 {
-	assert(file != 0);
+	sm__assert(file != 0);
 
 	struct fs_file *f = (struct fs_file *)file;
 
@@ -156,8 +156,8 @@ sm__physfs_vfs_read(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, void *dest, 
 {
 	size_t result;
 
-	assert(file != 0);
-	assert(dest != 0);
+	sm__assert(file != 0);
+	sm__assert(dest != 0);
 
 	struct fs_file *f = (struct fs_file *)file;
 	result = fs_file_read(f, dest, size);
@@ -182,8 +182,8 @@ sm__physfs_vfs_write(
 {
 	size_t result;
 
-	assert(file != 0);
-	assert(src != 0);
+	sm__assert(file != 0);
+	sm__assert(src != 0);
 
 	struct fs_file *f = (struct fs_file *)file;
 	result = fs_file_write(f, src, size);
@@ -191,7 +191,7 @@ sm__physfs_vfs_write(
 	if (bytes_written != 0) { *bytes_written = result; }
 
 	// TODO: handle error
-	assert(result == size);
+	sm__assert(result == size);
 
 	return (MA_SUCCESS);
 }
@@ -199,12 +199,12 @@ sm__physfs_vfs_write(
 static ma_result
 sm__physfs_vfs_seek(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
 {
-	assert(file != NULL);
+	sm__assert(file != NULL);
 
 	struct fs_file *f = (struct fs_file *)file;
 
 	i64 size = f->status.filesize;
-	assert(size != -1);
+	sm__assert(size != -1);
 
 	i64 position = 0;
 
@@ -226,8 +226,8 @@ sm__physfs_vfs_seek(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 off
 		break;
 	}
 
-	assert(position >= 0);
-	assert(position <= size); // consider EOF
+	sm__assert(position >= 0);
+	sm__assert(position <= size); // consider EOF
 
 	i32 err = fs_file_seek(f, (u64)position);
 	if (err == 0)
@@ -242,8 +242,8 @@ sm__physfs_vfs_seek(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 off
 static ma_result
 sm__physfs_vfs_tell(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 *cursor)
 {
-	assert(file != 0);
-	assert(cursor != 0);
+	sm__assert(file != 0);
+	sm__assert(cursor != 0);
 
 	struct fs_file *f = file;
 
@@ -263,12 +263,12 @@ sm__physfs_vfs_tell(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_int64 *cu
 static ma_result
 sm__physfs_vfs_info(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, ma_file_info *file_info)
 {
-	assert(file != 0);
-	assert(file_info != 0);
+	sm__assert(file != 0);
+	sm__assert(file_info != 0);
 
 	struct fs_file *f = file;
 
-	assert(f->status.filesize != -1);
+	sm__assert(f->status.filesize != -1);
 	file_info->sizeInBytes = f->status.filesize;
 
 	return (MA_SUCCESS);
@@ -278,7 +278,9 @@ static ma_result
 sm__physfs_vfs_openw(sm__maybe_unused ma_vfs *vfs, sm__maybe_unused const wchar_t *file_path,
     sm__maybe_unused ma_uint32 openMode, sm__maybe_unused ma_vfs_file *file)
 {
-	assert(0 && "openw");
+	sm__assertf(0, "openw");
+
+	return (MA_ERROR);
 }
 
 static ma_result

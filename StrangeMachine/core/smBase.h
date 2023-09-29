@@ -22,21 +22,6 @@
 
 #if SM_DEBUG
 
-// #   define sx_assert(_e)
-// #   define sx_assertf(_e, ...)
-
-#	define sm__unreachable()                             \
-		do {                                          \
-			printf("unreachable code reached\n"); \
-			abort();                              \
-		} while (0)
-
-#	define sm__unimplemented(EXIT_IF_TRUE)                 \
-		do {                                            \
-			printf("unimplemented code reached\n"); \
-			if (EXIT_IF_TRUE) { abort(); }          \
-		} while (0)
-
 #	if defined(_MSC_VER)
 #		define sm__dbgbreak() __debugbreak()
 #	elif defined(__clang__)
@@ -62,6 +47,39 @@
 // #define sm__assertf(_e, ...) do { if (!(_e)) { sx__debug_message(__FILE__, __LINE__, __VA_ARGS__); sx_hwbreak(); }}
 // while(0)
 
+#	define sm__assert(_ass)                                                                          \
+		do {                                                                                      \
+			if (!(_ass))                                                                      \
+			{                                                                                 \
+				printf("\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name, \
+				    sm__file_line, #_ass);                                                \
+				sm__dbgbreak();                                                           \
+			}                                                                                 \
+		} while (0)
+#	define sm__assertf(_ass, ...)                                                                    \
+		do {                                                                                      \
+			if (!(_ass))                                                                      \
+			{                                                                                 \
+				printf("\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name, \
+				    sm__file_line, #_ass);                                                \
+				printf("\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name, \
+				    sm__file_line, __VA_ARGS__);                                          \
+				sm__dbgbreak();                                                           \
+			}                                                                                 \
+		} while (0)
+
+#	define sm__unreachable()                             \
+		do {                                          \
+			printf("unreachable code reached\n"); \
+			sm__dbgbreak();                       \
+		} while (0)
+
+#	define sm__unimplemented(EXIT_IF_TRUE)                 \
+		do {                                            \
+			printf("unimplemented code reached\n"); \
+			if (EXIT_IF_TRUE) { sm__dbgbreak(); }   \
+		} while (0)
+
 #else // SM_DEBUG
 
 #	if defined(__GNUC__) || defined(__clang__)
@@ -79,6 +97,7 @@ while (!0)
 #	define sm__file_name "FILE"
 
 #	define sm__unimplemented(EXIT_IF_TRUE)
+#	define sm__assert(_ass)
 
 #endif // SM_DEBUG
 
@@ -88,7 +107,7 @@ while (!0)
 #	define sm__static_assert
 #endif
 
-#define sm__static_type_assert(X, Y) _Generic((Y), __typeof__(X) : _Generic((X), __typeof__(Y) : (void)NULL))
+#define sm__static_type_assert(X, Y) _Generic((Y), __typeof__(X): _Generic((X), __typeof__(Y): (void)NULL))
 
 #if defined(__clang__) || defined(__GNUC__)
 #	define sm__maybe_unused __attribute__((unused))

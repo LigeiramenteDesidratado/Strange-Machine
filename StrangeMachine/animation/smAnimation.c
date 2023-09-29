@@ -26,7 +26,7 @@ static void track_sample_v4(struct track *track, f32 time, b8 looping, versor ou
 static f32
 track_sample_scalar(struct track *track, f32 time, bool looping)
 {
-	assert(track);
+	sm__assert(track);
 
 	switch (track->interpolation)
 	{
@@ -42,7 +42,7 @@ track_sample_scalar(struct track *track, f32 time, bool looping)
 static void
 track_sample_vec3(struct track *track, f32 time, b8 looping, vec3 out)
 {
-	assert(track);
+	sm__assert(track);
 
 	switch (track->interpolation)
 	{
@@ -687,7 +687,7 @@ sm__track_hermite_v4(f32 t, versor p1, versor s1, versor _p2, versor s2, versor 
 b8
 transform_track_is_valid(struct transform_track *transform_track)
 {
-	assert(transform_track);
+	sm__assert(transform_track);
 
 	return (array_len(transform_track->position.frames_v3) > 1) ||
 	       (array_len(transform_track->rotation.frames_v4) > 1) ||
@@ -697,7 +697,7 @@ transform_track_is_valid(struct transform_track *transform_track)
 f32
 transform_track_get_start_time(const struct transform_track *transform_track)
 {
-	assert(transform_track);
+	sm__assert(transform_track);
 
 	f32 result = 0.0f;
 	b8 is_set = false;
@@ -736,7 +736,7 @@ transform_track_get_start_time(const struct transform_track *transform_track)
 f32
 transform_track_get_end_time(const struct transform_track *transform_track)
 {
-	assert(transform_track);
+	sm__assert(transform_track);
 
 	f32 result = 0.0f;
 	bool is_set = false;
@@ -773,7 +773,7 @@ transform_track_get_end_time(const struct transform_track *transform_track)
 trs
 transform_track_sample(struct transform_track *transform_track, trs *transform_ref, f32 time, b8 looping)
 {
-	assert(transform_track);
+	sm__assert(transform_track);
 
 	trs result = *transform_ref; // Assign default values
 
@@ -798,7 +798,7 @@ transform_track_sample(struct transform_track *transform_track, trs *transform_r
 f32
 clip_get_duration(struct clip_resource *clip)
 {
-	assert(clip);
+	sm__assert(clip);
 	return (clip->end_time - clip->start_time);
 }
 
@@ -808,8 +808,8 @@ clip_get_duration(struct clip_resource *clip)
 f32
 clip_sample(struct clip_resource *clip, struct pose *pose, f32 t)
 {
-	assert(clip);
-	assert(pose);
+	sm__assert(clip);
+	sm__assert(pose);
 
 	if (clip_get_duration(clip) == 0.0f) { return (0.0f); }
 
@@ -831,7 +831,7 @@ clip_sample(struct clip_resource *clip, struct pose *pose, f32 t)
 f32
 clip_adjust_time(struct clip_resource *clip, f32 t)
 {
-	assert(clip);
+	sm__assert(clip);
 
 	if (clip->looping)
 	{
@@ -862,7 +862,7 @@ clip_adjust_time(struct clip_resource *clip, f32 t)
 void
 clip_recalculate_duration(struct clip_resource *clip)
 {
-	assert(clip);
+	sm__assert(clip);
 
 	clip->start_time = 0.0f;
 	clip->end_time = 0.0f;
@@ -903,7 +903,7 @@ clip_recalculate_duration(struct clip_resource *clip)
 struct transform_track *
 clip_get_transform_track_from_joint(struct arena *arena, struct clip_resource *clip, u32 joint)
 {
-	assert(clip);
+	sm__assert(clip);
 
 	for (u32 i = 0; i < array_len(clip->tracks); ++i)
 	{

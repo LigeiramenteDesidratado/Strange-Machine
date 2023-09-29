@@ -173,7 +173,7 @@ sm__core_teardown_modules(void)
 b8
 core_init(struct core_init *core_init)
 {
-	assert(core_init);
+	sm__assert(core_init);
 
 	u32 base_size = MAX(core_init->total_memory, MB(4));
 	if (!base_memory_init(base_size))
@@ -439,7 +439,7 @@ core_button_pressed(u32 button)
 b8
 core_key_pressed(u32 key)
 {
-	assert(key < MAX_KEYBOARD_KEYS);
+	sm__assert(key < MAX_KEYBOARD_KEYS);
 	return (!CC.input.keys[key].locked && CC.input.keys[key].pressed);
 }
 
@@ -448,7 +448,7 @@ core_key_pressed_lock(u32 key, u32 frames)
 {
 #define MAX_LOCK 2147483648
 #define MIN_LOCK 0
-	assert(key < MAX_KEYBOARD_KEYS);
+	sm__assert(key < MAX_KEYBOARD_KEYS);
 
 	frames = MIN(frames, MAX_LOCK);
 	frames = MAX(frames, MIN_LOCK);

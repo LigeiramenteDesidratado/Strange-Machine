@@ -121,7 +121,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 				break;
 			}
 		}
-		assert(self->ett.handle != self->parent_ett.handle);
+		sm__assert(self->ett.handle != self->parent_ett.handle);
 	}
 
 	for (u32 i = 0; i < array_len(nodes_hierarchy); ++i)
@@ -174,7 +174,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 
 		mesh_component *mesh = scene_component_get_data(scene, self->ett, MESH);
 		{
-			assert(scene_res->nodes[i].mesh.size > 0);
+			sm__assert(scene_res->nodes[i].mesh.size > 0);
 			struct resource *mesh_res = resource_get_by_name(scene_res->nodes[i].mesh);
 			mesh->resource_ref = resource_make_reference(mesh_res);
 			mesh->mesh_ref = mesh->resource_ref->mesh_data;
@@ -238,7 +238,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 entity_t
 scene_set_main_camera(struct scene *scene, entity_t camera_entity)
 {
-	assert(scene_entity_is_valid(scene, camera_entity));
+	sm__assert(scene_entity_is_valid(scene, camera_entity));
 
 	entity_t old_camera = scene->main_camera;
 	scene->main_camera = camera_entity;
@@ -251,7 +251,7 @@ scene_get_main_camera(struct scene *scene)
 {
 	entity_t result;
 
-	assert(scene_entity_is_valid(scene, scene->main_camera));
+	sm__assert(scene_entity_is_valid(scene, scene->main_camera));
 
 	result = scene->main_camera;
 
@@ -321,10 +321,10 @@ scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype
 void
 scene_entity_remove(struct scene *scene, entity_t entity)
 {
-	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
+	sm__assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->nodes_handle_pool.cap);
+	sm__assert(index < scene->nodes_handle_pool.cap);
 
 	handle_t ett = scene->nodes[index].handle;
 	u32 comp_pool_index = scene->nodes[index].component_pool_index;
@@ -345,7 +345,7 @@ scene_entity_is_valid(struct scene *scene, entity_t entity)
 	if (!result) { return (result); }
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->nodes_handle_pool.cap);
+	sm__assert(index < scene->nodes_handle_pool.cap);
 
 	handle_t ett = scene->nodes[index].handle;
 	u32 comp_pool_index = scene->nodes[index].component_pool_index;
@@ -362,10 +362,10 @@ scene_entity_has_components(struct scene *scene, entity_t entity, component_t co
 {
 	b8 result;
 
-	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
+	sm__assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->nodes_handle_pool.cap);
+	sm__assert(index < scene->nodes_handle_pool.cap);
 
 	component_t archetype = scene->nodes[index].archetype;
 
@@ -377,7 +377,7 @@ scene_entity_has_components(struct scene *scene, entity_t entity, component_t co
 void
 scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t entity, component_t components)
 {
-	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
+	sm__assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	const u32 indirect_index = handle_index(entity.handle);
 	const component_t old_archetype = scene->nodes[indirect_index].archetype;
@@ -421,7 +421,7 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 		scene->nodes[indirect_index].component_pool_index = component_index;
 		scene->nodes[indirect_index].archetype = new_archetype;
 	}
-	assert(new_handle != INVALID_HANDLE);
+	sm__assert(new_handle != INVALID_HANDLE);
 
 	u32 new_index = handle_index(new_handle);
 	u32 old_index = handle_index(old_handle);
@@ -436,15 +436,15 @@ scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t en
 		if (new_cmp & old_cmp)
 		{
 			u32 cmp_index = fast_log2_64(new_cmp);
-			assert(cmp_index < 64);
+			sm__assert(cmp_index < 64);
 			struct component_view *old_view = &old_comp_pool->view[cmp_index];
 			struct component_view *new_view = &new_comp_pool->view[cmp_index];
-			assert(old_view->id == new_view->id);
+			sm__assert(old_view->id == new_view->id);
 
-			assert(new_index < new_comp_pool->handle_pool.cap);
+			sm__assert(new_index < new_comp_pool->handle_pool.cap);
 			void *dest = (u8 *)new_comp_pool->data + (new_index * new_comp_pool->size) + new_view->offset;
 
-			assert(old_index < old_comp_pool->handle_pool.cap);
+			sm__assert(old_index < old_comp_pool->handle_pool.cap);
 			void *src = (u8 *)old_comp_pool->data + (old_index * old_comp_pool->size) + old_view->offset;
 
 			memcpy(dest, src, new_view->size);
@@ -459,11 +459,11 @@ void *
 scene_component_get_data(struct scene *scene, entity_t entity, component_t component)
 {
 	void *result;
-	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
+	sm__assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->nodes_handle_pool.cap);
-	assert(scene->nodes[index].archetype & component);
+	sm__assert(index < scene->nodes_handle_pool.cap);
+	sm__assert(scene->nodes[index].archetype & component);
 
 	handle_t ett = scene->nodes[index].handle;
 	u32 comp_pool_index = scene->nodes[index].component_pool_index;
@@ -497,8 +497,8 @@ scene_entity_is_dirty(struct scene *scene, entity_t entity)
 void
 scene_entity_update_hierarchy(struct scene *scene, entity_t self)
 {
-	assert(scene_entity_is_valid(scene, self));
-	assert(scene_entity_has_components(scene, self, TRANSFORM));
+	sm__assert(scene_entity_is_valid(scene, self));
+	sm__assert(scene_entity_has_components(scene, self, TRANSFORM));
 	transform_component *self_transform = scene_component_get_data(scene, self, TRANSFORM);
 
 	// Compute local transform
@@ -510,7 +510,7 @@ scene_entity_update_hierarchy(struct scene *scene, entity_t self)
 	// Compute world transform
 	if (self_node->parent.handle)
 	{
-		assert(scene_entity_is_valid(scene, self_node->parent));
+		sm__assert(scene_entity_is_valid(scene, self_node->parent));
 		transform_component *parent_transform = scene_component_get_data(scene, self_node->parent, TRANSFORM);
 
 		glm_mat4_mul(
@@ -547,11 +547,11 @@ scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entit
 void
 scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 {
-	assert(scene_entity_is_valid(scene, self));
-	assert(scene_entity_is_valid(scene, new_parent));
+	sm__assert(scene_entity_is_valid(scene, self));
+	sm__assert(scene_entity_is_valid(scene, new_parent));
 
-	assert(scene_entity_has_components(scene, self, TRANSFORM));
-	assert(scene_entity_has_components(scene, new_parent, TRANSFORM));
+	sm__assert(scene_entity_has_components(scene, self, TRANSFORM));
+	sm__assert(scene_entity_has_components(scene, new_parent, TRANSFORM));
 
 	if (self.handle == new_parent.handle)
 	{
@@ -560,8 +560,8 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 	}
 
 	u32 self_index = handle_index(self.handle);
-	assert(self_index < scene->nodes_handle_pool.cap);
-	assert(scene->nodes[self_index].archetype & TRANSFORM);
+	sm__assert(self_index < scene->nodes_handle_pool.cap);
+	sm__assert(scene->nodes[self_index].archetype & TRANSFORM);
 	struct node *self_node = &scene->nodes[self_index];
 
 	if (self_node->parent.handle == new_parent.handle) { return; }
@@ -574,8 +574,8 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 			entity_t motherless = self_node->children[i];
 
 			u32 motherless_index = handle_index(motherless.handle);
-			assert(motherless_index < scene->nodes_handle_pool.cap);
-			assert(scene->nodes[motherless_index].archetype & TRANSFORM);
+			sm__assert(motherless_index < scene->nodes_handle_pool.cap);
+			sm__assert(scene->nodes[motherless_index].archetype & TRANSFORM);
 			struct node *motherless_node = &scene->nodes[motherless_index];
 			motherless_node->parent = self_node->parent;
 		}
@@ -588,8 +588,8 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 		entity_t parent_entity = self_node->parent;
 
 		u32 parent_index = handle_index(parent_entity.handle);
-		assert(parent_index < scene->nodes_handle_pool.cap);
-		assert(scene->nodes[parent_index].archetype & TRANSFORM);
+		sm__assert(parent_index < scene->nodes_handle_pool.cap);
+		sm__assert(scene->nodes[parent_index].archetype & TRANSFORM);
 		struct node *parent_node = &scene->nodes[parent_index];
 
 		i32 new_self_index = -1;
@@ -601,7 +601,7 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 				break;
 			}
 		}
-		assert(new_self_index != -1);
+		sm__assert(new_self_index != -1);
 
 		array_del(parent_node->children, new_self_index, 1);
 	}
@@ -778,7 +778,7 @@ scene_entity_rotate(struct scene *scene, entity_t self, v4 delta)
 void
 scene_system_register(struct arena *arena, struct scene *scene, str8 name, system_f system, void *user_data)
 {
-	assert(system);
+	sm__assert(system);
 
 	struct system_info sys_info = {
 	    .name = name.size ? name : str8_from("unnamed"),
@@ -824,7 +824,7 @@ scene_iter_next(struct scene *scene, struct scene_iter *iter)
 	if (!iter->first_iter) { ++iter->index; }
 	else
 	{
-		assert(iter->index == 0);
+		sm__assert(iter->index == 0);
 		iter->first_iter = false;
 	}
 
@@ -862,13 +862,13 @@ scene_iter_get_component(struct scene_iter *iter, component_t component)
 {
 	void *result = 0;
 
-	assert((iter->constraint & component) == component);
+	sm__assert((iter->constraint & component) == component);
 
 	u32 comp_index = fast_log2_64(component);
-	assert(comp_index < 64);
+	sm__assert(comp_index < 64);
 
 	const struct component_view *v = &iter->comp_pool_ref->view[comp_index];
-	assert(component == v->id);
+	sm__assert(component == v->id);
 
 	// If the view has the specified component, return a pointer to its data
 	result = (u8 *)iter->comp_pool_ref->data + (iter->index * iter->comp_pool_ref->size) + v->offset;
@@ -899,7 +899,7 @@ scene_iter_get_entity(struct scene_iter *iter)
 		}
 	}
 
-	assert(result.handle != INVALID_HANDLE);
+	sm__assert(result.handle != INVALID_HANDLE);
 
 	return (result);
 }
@@ -922,10 +922,10 @@ scene_system_run(struct arena *arena, struct scene *scene, struct ctx *ctx)
 void
 scene_print_archeype(struct arena *arena, struct scene *scene, entity_t entity)
 {
-	assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
+	sm__assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
 	u32 index = handle_index(entity.handle);
-	assert(index < scene->nodes_handle_pool.cap);
+	sm__assert(index < scene->nodes_handle_pool.cap);
 
 	component_t archetype = scene->nodes[index].archetype;
 	b8 first = true;

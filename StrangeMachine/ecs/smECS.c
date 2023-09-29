@@ -186,23 +186,23 @@ void *
 component_pool_get_data(struct component_pool *comp_pool, handle_t handle, component_t component)
 {
 	void *result;
-	assert(comp_pool);
+	sm__assert(comp_pool);
 
 	// Check that the entity has the specified component
-	assert((comp_pool->archetype & component));
+	sm__assert((comp_pool->archetype & component));
 
 	// Check that the handle is valid
-	assert(handle_valid(&comp_pool->handle_pool, handle));
+	sm__assert(handle_valid(&comp_pool->handle_pool, handle));
 
 	// Get the index of the handle
 	u32 index = handle_index(handle);
-	assert(index < comp_pool->handle_pool.cap);
+	sm__assert(index < comp_pool->handle_pool.cap);
 
 	u32 comp_index = fast_log2_64(component);
-	assert(comp_index < 64);
+	sm__assert(comp_index < 64);
 
 	struct component_view *v = &comp_pool->view[comp_index];
-	assert(component == v->id);
+	sm__assert(component == v->id);
 
 	// If the view has the specified component, return a pointer to its data
 	result = (u8 *)comp_pool->data + (index * comp_pool->size) + v->offset;
@@ -214,7 +214,7 @@ b8
 component_pool_handle_is_valid(struct component_pool *comp_pool, handle_t handle)
 {
 	b8 result;
-	assert(comp_pool);
+	sm__assert(comp_pool);
 
 	result = handle_valid(&comp_pool->handle_pool, handle);
 	return (result);
@@ -226,7 +226,7 @@ component_pool_handle_new(struct arena *arena, struct component_pool *comp_pool)
 	handle_t result = INVALID_HANDLE;
 
 	result = handle_new(arena, &comp_pool->handle_pool);
-	assert(result != INVALID_HANDLE);
+	sm__assert(result != INVALID_HANDLE);
 
 	if (comp_pool->cap != comp_pool->handle_pool.cap)
 	{
@@ -244,10 +244,10 @@ component_pool_handle_new(struct arena *arena, struct component_pool *comp_pool)
 void
 component_pool_handle_remove(struct component_pool *comp_pool, handle_t handle)
 {
-	assert(comp_pool);
+	sm__assert(comp_pool);
 
 	// Check that the handle is valid
-	assert(handle_valid(&comp_pool->handle_pool, handle));
+	sm__assert(handle_valid(&comp_pool->handle_pool, handle));
 
 	sm__component_pool_unmake_ref(comp_pool, handle);
 
@@ -366,15 +366,15 @@ void *
 system_iter_get_component(struct system_iter *iter, component_t component)
 {
 	void *result;
-	assert(iter->comp_pool_ref->archetype & component);
+	sm__assert(iter->comp_pool_ref->archetype & component);
 
 	u32 comp_index = fast_log2_64(component);
-	assert(comp_index < 64);
+	sm__assert(comp_index < 64);
 
 	struct component_view *v = &iter->comp_pool_ref->view[comp_index];
-	assert(component == v->id);
+	sm__assert(component == v->id);
 
-	assert(iter->index > 0);
+	sm__assert(iter->index > 0);
 	u32 index = iter->index - 1;
 
 	// If the view has the specified component, return a pointer to its data

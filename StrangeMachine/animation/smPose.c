@@ -3,7 +3,7 @@
 void
 pose_resize(struct arena *arena, struct pose *pose, u32 size)
 {
-	assert(pose != 0);
+	sm__assert(pose != 0);
 
 	u32 joint_old_size = array_len(pose->joints);
 	array_set_len(arena, pose->joints, size);
@@ -24,8 +24,8 @@ pose_resize(struct arena *arena, struct pose *pose, u32 size)
 trs
 pose_get_local_transform(struct pose *pose, u32 index)
 {
-	assert(pose != 0);
-	assert(index < array_len(pose->joints));
+	sm__assert(pose != 0);
+	sm__assert(index < array_len(pose->joints));
 
 	return pose->joints[index];
 }
@@ -33,8 +33,8 @@ pose_get_local_transform(struct pose *pose, u32 index)
 trs
 pose_get_global_transform(const struct pose *pose, u32 index)
 {
-	assert(pose != 0);
-	assert(index < array_len(pose->joints));
+	sm__assert(pose != 0);
+	sm__assert(index < array_len(pose->joints));
 
 	trs result = pose->joints[index];
 	for (i32 p = pose->parents[index]; p >= 0; p = pose->parents[p])
@@ -101,7 +101,7 @@ pose_get_matrix_palette(const struct pose *pose, struct arena *arena, array(m4 *
 b8
 pose_is_in_hierarchy(struct pose *pose, u32 root, u32 search)
 {
-	assert(search < array_len(pose->parents));
+	sm__assert(search < array_len(pose->parents));
 
 	if (search == root) { return (true); }
 

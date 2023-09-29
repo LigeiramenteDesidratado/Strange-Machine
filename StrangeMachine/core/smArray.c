@@ -101,7 +101,7 @@ size_t *
 sm__array_ctor(size_t cap, size_t size)
 {
 	size_t *array = mm_aligned_alloc(16, SM__ARRAY_HEADER_OFFSET + (size * cap));
-	assert(array);
+	sm__assert(array);
 
 	SM__ARRAY_LEN(array) = 0;
 	SM__ARRAY_CAP(array) = cap;
@@ -124,7 +124,7 @@ sm__array_set_len(size_t *array, size_t len, size_t size)
 	{
 		void *tmp = NULL;
 		tmp = mm_aligned_realloc(array, 16, SM__ARRAY_HEADER_OFFSET + (len * size));
-		assert(tmp);
+		sm__assert(tmp);
 
 		array = (size_t *)tmp;
 		SM__ARRAY_CAP(array) = len;
@@ -142,7 +142,7 @@ sm__array_set_cap(size_t *array, size_t cap, size_t size)
 	{
 		void *tmp = 0;
 		tmp = mm_aligned_realloc(array, 16, SM__ARRAY_HEADER_OFFSET + (cap * size));
-		assert(tmp);
+		sm__assert(tmp);
 
 		array = (size_t *)tmp;
 	}

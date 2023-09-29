@@ -21,7 +21,7 @@ sm__arena_walker(void *ptr, size_t size, i32 used, sm__maybe_unused void *user)
 void
 sm__arena_make(struct arena *alloc, struct buf base_memory, str8 file, u32 line)
 {
-	assert(base_memory.size >= tlsf_size());
+	sm__assert(base_memory.size >= tlsf_size());
 	const u32 _size = base_memory.size - (u32)tlsf_size();
 	i8 *buf = (i8 *)base_memory.data;
 
@@ -125,8 +125,8 @@ sm__arena_free(struct arena *alloc, void *ptr, sm__maybe_unused str8 file, sm__m
 void
 sm__arena_validate(struct arena *arena, sm__maybe_unused str8 file, sm__maybe_unused u32 line)
 {
-	assert(tlsf_check(arena->tlsf) == 0);
-	assert(tlsf_check_pool(arena->tlsf_pool) == 0);
+	sm__assert(tlsf_check(arena->tlsf) == 0);
+	sm__assert(tlsf_check_pool(arena->tlsf_pool) == 0);
 }
 
 u32

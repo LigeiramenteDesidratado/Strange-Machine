@@ -53,7 +53,7 @@ void
 handle_pool_copy(struct handle_pool *dest, struct handle_pool *src)
 {
 	if (dest == src) { return; }
-	assert(dest->cap == src->cap);
+	sm__assert(dest->cap == src->cap);
 
 	dest->len = src->len;
 
@@ -66,10 +66,7 @@ handle_new(struct arena *arena, struct handle_pool *handle_pool)
 {
 	handle_t result = INVALID_HANDLE;
 
-	if (handle_pool->len >= handle_pool->cap)
-	{
-		sm__handle_pool_grow(arena, handle_pool, handle_pool->cap << 1);
-	}
+	if (handle_pool->len >= handle_pool->cap) { sm__handle_pool_grow(arena, handle_pool, handle_pool->cap << 1); }
 
 	u32 index = handle_pool->len++;
 	handle_t handle = handle_pool->dense[index];
@@ -89,8 +86,8 @@ handle_new(struct arena *arena, struct handle_pool *handle_pool)
 void
 handle_remove(struct handle_pool *pool, handle_t handle)
 {
-	assert(pool->len > 0);
-	assert(handle_valid(pool, handle));
+	sm__assert(pool->len > 0);
+	sm__assert(handle_valid(pool, handle));
 
 	u32 index = pool->sparse[handle_index(handle)];
 	handle_t last_handle = pool->dense[--pool->len];
@@ -103,7 +100,7 @@ handle_remove(struct handle_pool *pool, handle_t handle)
 b8
 handle_valid(const struct handle_pool *pool, handle_t handle)
 {
-	assert(handle);
+	sm__assert(handle);
 
 	b8 result;
 
@@ -116,7 +113,7 @@ handle_valid(const struct handle_pool *pool, handle_t handle)
 handle_t
 handle_at(const struct handle_pool *pool, u32 index)
 {
-	assert(index < pool->len);
+	sm__assert(index < pool->len);
 
 	handle_t result;
 

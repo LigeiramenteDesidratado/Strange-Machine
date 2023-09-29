@@ -22,7 +22,7 @@ layer_make(str8 name, void *user_data, layer_f on_attach, layer_f on_update, lay
 void
 layer_release(struct layer *layer)
 {
-	assert(layer);
+	sm__assert(layer);
 }
 
 struct stack_layer
@@ -45,7 +45,7 @@ stack_layer_release(struct stack_layer *stack_layer)
 void
 stack_layer_push(struct stack_layer *stack_layer, struct layer layer)
 {
-	assert(stack_layer->layer_len <= 8);
+	sm__assert(stack_layer->layer_len <= 8);
 	stack_layer->layers[stack_layer->layer_len++] = layer;
 	// array_push(stack_layer->layers, layer);
 }
@@ -53,7 +53,7 @@ stack_layer_push(struct stack_layer *stack_layer, struct layer layer)
 void
 stack_layer_push_overlayer(struct stack_layer *stack_layer, struct layer overlayer)
 {
-	assert(stack_layer->layer_len <= 8);
+	sm__assert(stack_layer->layer_len <= 8);
 	stack_layer->layers[stack_layer->overlayer_len++] = overlayer;
 }
 
@@ -78,7 +78,7 @@ stack_layer_get_len(struct stack_layer *stack_layer)
 struct layer *
 stack_layer_get_layer(struct stack_layer *stack_layer, u32 index)
 {
-	assert(index < 16);
+	sm__assert(index < 16);
 
 	if (index < stack_layer->layer_len) { return (&stack_layer->layers[index]); }
 

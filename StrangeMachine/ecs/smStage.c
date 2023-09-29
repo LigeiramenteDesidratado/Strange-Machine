@@ -131,7 +131,7 @@ stage_scene_new(str8 name)
 		return;
 	}
 
-	assert(0);
+	sm__unreachable();
 }
 
 void
@@ -147,7 +147,7 @@ stage_set_current_by_name(str8 name)
 	}
 
 	log_warn(str8_from("scene {s} not found"), name);
-	assert(0);
+	sm__unreachable();
 }
 
 b8

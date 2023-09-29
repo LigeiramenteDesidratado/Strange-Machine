@@ -164,11 +164,11 @@ gl__log_call(void)
 	return true;
 }
 
-#define glCall(CALL)                             \
-	do {                                     \
-		gl__log_call();                  \
-		CALL;                            \
-		assert(gl__log_call() && #CALL); \
+#define glCall(CALL)                                \
+	do {                                        \
+		gl__log_call();                     \
+		CALL;                               \
+		sm__assertf(gl__log_call(), #CALL); \
 	} while (0)
 
 static str8
@@ -457,7 +457,7 @@ gl__shader_cache_actives(struct arena *arena, struct shader_resource *shader)
 	{
 		glCall(glGetActiveAttrib(shader->program, i, bufSize, &length, &size, &type, _name));
 		glCall(location = glGetAttribLocation(shader->program, _name));
-		assert(location != -1);
+		sm__assert(location != -1);
 
 		str8 name = (str8){.idata = _name, .size = length};
 
@@ -478,7 +478,7 @@ gl__shader_cache_actives(struct arena *arena, struct shader_resource *shader)
 	{
 		glCall(glGetActiveUniform(shader->program, i, bufSize, &length, &size, &type, _name));
 		glCall(location = glGetUniformLocation(shader->program, _name));
-		assert(location != -1);
+		sm__assert(location != -1);
 
 		if (strncmp(_name, "gl_", 3) == 0) { continue; }
 
@@ -489,7 +489,7 @@ gl__shader_cache_actives(struct arena *arena, struct shader_resource *shader)
 		{
 			if (bracket)
 			{
-				assert(bracket[3] == '\0'); // array of structs not supported yet
+				sm__assert(bracket[3] == '\0'); // array of structs not supported yet
 				*bracket = '\0';
 				length = (GLint)(bracket - _name);
 			}
@@ -721,7 +721,7 @@ gl__get_GL_texture_formats(u32 pixel_format, u32 *gl_internal_format, u32 *gl_fo
 static void
 gl__upload_texture(image_resource *image)
 {
-	assert(image->texture_handle == 0);
+	sm__assert(image->texture_handle == 0);
 	u32 handle = 0;
 
 	u32 width = image->width;
@@ -912,7 +912,7 @@ sm__renderer_commit_blend(void)
 
 				if (state.mode && (state.mode != RC.state.current_blend.mode))
 				{
-					assert(state.mode < SM__BLEND_MODE_MAX);
+					sm__assert(state.mode < SM__BLEND_MODE_MAX);
 					gl__set_blend_mode(state.mode);
 					RC.state.current_blend.mode = state.mode;
 				}
@@ -999,7 +999,7 @@ sm__renderer_commit_rasterizer(void)
 
 				if (state.cull_mode && (RC.state.current_rasterizer.cull_mode != state.cull_mode))
 				{
-					assert(state.cull_mode < SM__CULL_MODE_MAX);
+					sm__assert(state.cull_mode < SM__CULL_MODE_MAX);
 					static GLenum ctable_cull[] = {
 					    [CULL_MODE_FRONT] = GL_FRONT,
 					    [CULL_MODE_BACK] = GL_BACK,
@@ -1014,7 +1014,7 @@ sm__renderer_commit_rasterizer(void)
 		// Winding mode
 		if (state.winding_mode && (RC.state.current_rasterizer.winding_mode != state.winding_mode))
 		{
-			assert(state.winding_mode < SM__WINDING_MODE_MAX);
+			sm__assert(state.winding_mode < SM__WINDING_MODE_MAX);
 			static GLenum ctable_winding[] = {
 			    [WINDING_MODE_CLOCK_WISE] = GL_CW,
 			    [WINDING_MODE_COUNTER_CLOCK_WISE] = GL_CCW,
@@ -1027,7 +1027,7 @@ sm__renderer_commit_rasterizer(void)
 		// Polygon mode
 		if (state.polygon_mode && (RC.state.current_rasterizer.polygon_mode != state.polygon_mode))
 		{
-			assert(state.polygon_mode < SM__POLYGON_MODE_MAX);
+			sm__assert(state.polygon_mode < SM__POLYGON_MODE_MAX);
 			static GLenum ctable_polygon[] = {
 			    [POLYGON_MODE_POINT] = GL_POINT,
 			    [POLYGON_MODE_LINE] = GL_LINE,
@@ -1128,8 +1128,8 @@ void
 renderer_texture_add(str8 texture_name)
 {
 	struct resource *resource = resource_get_by_name(texture_name);
-	assert(resource);
-	assert(resource->type == RESOURCE_IMAGE);
+	sm__assert(resource);
+	sm__assert(resource->type == RESOURCE_IMAGE);
 
 	if (resource->image_data->texture_handle) { return; }
 
@@ -1184,13 +1184,13 @@ renderer_shader_set(str8 shader_name)
 	}
 
 	log_error(str8_from("[{s}] shader not found"), shader_name);
-	assert(0);
+	sm__unreachable();
 }
 
 void
 renderer_shader_set_uniform(str8 name, void *value, u32 size, u32 count)
 {
-	assert(count);
+	sm__assert(count);
 
 	for (u32 i = 0; i < RC.state.selected_shader->uniforms_count; ++i)
 	{
@@ -1198,8 +1198,8 @@ renderer_shader_set_uniform(str8 name, void *value, u32 size, u32 count)
 
 		if (str8_eq(name, uni->name))
 		{
-			assert(gl__ctable_type_size[uni->type] == size);
-			assert(count >= 1 && count <= uni->size);
+			sm__assert(gl__ctable_type_size[uni->type] == size);
+			sm__assert(count >= 1 && count <= uni->size);
 
 			if (memcmp(uni->data, value, size * count))
 			{
@@ -1210,7 +1210,7 @@ renderer_shader_set_uniform(str8 name, void *value, u32 size, u32 count)
 		}
 	}
 
-	assert(0);
+	sm__unreachable();
 }
 
 void
@@ -1268,7 +1268,8 @@ renderer_upload_shader(struct shader_resource *shader)
 		{
 			shader->fragment->id = gl__shader_compile_frag(shader->fragment->fragment);
 		}
-		assert(shader->vertex->id && shader->fragment->id);
+		sm__assert(shader->vertex->id);
+		sm__assert(shader->fragment->id);
 		glCall(shader->program = glCreateProgram());
 		if (!gl__shader_link(shader))
 		{
@@ -2076,7 +2077,7 @@ upload_mesh(mesh_component *mesh)
 
 	for (u32 i = 0; i < ARRAY_SIZE(ctable); ++i)
 	{
-		// assert(ctable[i].ptr != 0);
+		// sm__assert(ctable[i].ptr != 0);
 		if (!ctable[i].ptr) continue;
 		glCall(glGenBuffers(1, &m->vbos[ctable[i].idx]));
 		glCall(glBindBuffer(GL_ARRAY_BUFFER, m->vbos[ctable[i].idx]));
@@ -2087,7 +2088,7 @@ upload_mesh(mesh_component *mesh)
 		glCall(glEnableVertexAttribArray((u32)a_loc));
 	}
 
-	assert(m->indices);
+	sm__assert(m->indices);
 	glCall(glGenBuffers(1, &m->ebo));
 	glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m->ebo));
 	glCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, array_len(m->indices) * sizeof(u32), m->indices, GL_STATIC_DRAW));
@@ -2126,13 +2127,13 @@ upload_mesh(mesh_component *mesh)
 		return;
 	}
 
-	assert(0);
+	sm__unreachable();
 }
 
 // void
 // draw_mesh(camera_component *camera, mesh_component *mesh, material_component *material, m4 model)
 // {
-// 	assert(mesh->resource_ref->type == RESOURCE_MESH);
+// 	sm__assert(mesh->resource_ref->type == RESOURCE_MESH);
 //
 // 	struct mesh_resource *mes = mesh->resource_ref->data;
 // 	struct material_resource *mat = (material->resource_ref) ? material->resource_ref->material_data : 0;
@@ -2160,12 +2161,12 @@ upload_mesh(mesh_component *mesh)
 // 		if (mat->image.size != 0)
 // 		{
 // 			struct resource *img_resource = resource_get_by_name(mat->image);
-// 			assert(img_resource->type == RESOURCE_IMAGE);
+// 			sm__assert(img_resource->type == RESOURCE_IMAGE);
 //
 // 			struct image_resource *img = img_resource->data;
 // 			if (!img->texture_handle) { renderer_upload_texture(img); }
 // 			texture = img->texture_handle;
-// 			assert(texture != 0);
+// 			sm__assert(texture != 0);
 // 		}
 // 	}
 //
@@ -2242,7 +2243,7 @@ upload_mesh(mesh_component *mesh)
 //
 // 	if (mes->skin_data.is_skinned)
 // 	{
-// 		assert(shader == RC.state.default_program_skinned3D);
+// 		sm__assert(shader == RC.state.default_program_skinned3D);
 //
 // 		i32 u_animated = shader_resource_get_uniform_loc(shader, str8_from("u_animated"), true);
 // 		glCall(glUniformMatrix4fv(u_animated, (i32)array_len(mes->skin_data.pose_palette), GL_FALSE,
@@ -2265,7 +2266,7 @@ upload_mesh(mesh_component *mesh)
 void
 draw_mesh2(mesh_component *mesh)
 {
-	assert(mesh->resource_ref->type == RESOURCE_MESH);
+	sm__assert(mesh->resource_ref->type == RESOURCE_MESH);
 
 	struct mesh_resource *mes = mesh->resource_ref->data;
 
@@ -2507,7 +2508,7 @@ draw_text(str8 text, v2 pos, i32 font_size, color c)
 	sm__batch_overflow(4 * text.size);
 
 	struct resource *resource = resource_get_by_name(str8_from("toshibasat8x8"));
-	assert(resource && resource->type == RESOURCE_IMAGE && resource->image_data);
+	sm__assert(resource && resource->type == RESOURCE_IMAGE && resource->image_data);
 	struct image_resource *image = resource->image_data;
 
 	if (image->texture_handle == 0) { renderer_upload_texture(image); }
@@ -2578,7 +2579,7 @@ draw_text(str8 text, v2 pos, i32 font_size, color c)
 // 	sm__batch_overflow(4 * text.size);
 //
 // 	struct resource *resource = resource_get_by_name(str8_from("toshibasat8x8"));
-// 	assert(resource && resource->type == RESOURCE_IMAGE && resource->image_data);
+// 	sm__assert(resource && resource->type == RESOURCE_IMAGE && resource->image_data);
 // 	struct image_resource *image = resource->image_data;
 //
 // 	if (image->texture_handle == 0) { renderer_upload_texture(image); }
@@ -2652,7 +2653,7 @@ draw_text(str8 text, v2 pos, i32 font_size, color c)
 // 	sm__batch_overflow(4 * text.size);
 //
 // 	struct resource *resource = resource_get_by_name(str8_from("toshibasat8x8"));
-// 	assert(resource && resource->type == RESOURCE_IMAGE && resource->image_data);
+// 	sm__assert(resource && resource->type == RESOURCE_IMAGE && resource->image_data);
 // 	struct image_resource *image = resource->image_data;
 //
 // 	if (image->texture_handle == 0) { renderer_upload_texture(image); }
