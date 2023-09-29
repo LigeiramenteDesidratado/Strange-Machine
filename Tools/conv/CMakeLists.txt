@@ -7,6 +7,7 @@ add_executable(conv main.c
         ../../StrangeMachine/core/smResource.c
 	../../StrangeMachine/core/smBaseMemory.c
 	../../StrangeMachine/core/smLog.c
+	../../StrangeMachine/core/smThread.c
 	../../StrangeMachine/core/smArena.c
 	../../StrangeMachine/animation/smPose.c
 	../../StrangeMachine/animation/smAnimation.c

@@ -55,7 +55,7 @@ add_library(${PROJECT_NAME}
 	vendor/glad/glad.c
 	vendor/tlsf/tlsf.c
 	)
-target_link_libraries(${PROJECT_NAME} PRIVATE glfw physfs-static pthread PUBLIC cglm)
+target_link_libraries(${PROJECT_NAME} PRIVATE glfw physfs-static PUBLIC cglm dl m pthread)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE "$<$<CONFIG:Debug>:SM_DEBUG>")
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/StrangeMachine/vendor/physfs/src/")
