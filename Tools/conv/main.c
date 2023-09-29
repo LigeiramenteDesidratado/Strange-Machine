@@ -224,7 +224,6 @@ sm__gltf_get_extra_props(cgltf_data *data, const cgltf_extras gltf_extras)
 	enum extra_prop result = 0;
 
 	cgltf_size extra_size = gltf_extras.end_offset - gltf_extras.start_offset;
-	printf("size: %zu\n", extra_size);
 	if (extra_size != 0)
 	{
 		str8 extras;
@@ -419,7 +418,7 @@ sm__gltf_load_meshes(cgltf_data *data)
 			cgltf_primitive *primitive = &data->meshes[i].primitives[j];
 			u32 ac = primitive->attributes_count;
 
-			mesh.skin_data.is_skinned = !!gltf_skin;
+			if (!!gltf_skin) { mesh.flags |= MESH_FLAG_SKINNED; }
 			for (u32 k = 0; k < ac; ++k)
 			{
 				cgltf_attribute *attribute = &primitive->attributes[k];
@@ -452,6 +451,7 @@ sm__gltf_load_meshes(cgltf_data *data)
 			if (props & EXTRA_PROP_DOUBLE_SIDED) { mesh.flags |= MESH_FLAG_DOUBLE_SIDED; }
 
 			mesh.flags |= MESH_FLAG_DIRTY | MESH_FLAG_RENDERABLE;
+			log_trace(str8_from("MESH: {s}, FLAGS: {u3d}"), mesh_name, mesh.flags);
 
 			struct mesh_resource *mesh_ptr = sm___resource_mock_push_mesh(&mesh);
 			struct resource resource = resource_make(mesh_name, RESOURCE_MESH, mesh_ptr);

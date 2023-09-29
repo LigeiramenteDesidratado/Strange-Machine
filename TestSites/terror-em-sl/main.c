@@ -1058,7 +1058,7 @@ scene_m4_palette_update(
 		armature_component *armature = scene_iter_get_component(&iter, ARMATURE);
 		mesh_component *mesh = scene_iter_get_component(&iter, MESH);
 
-		assert(mesh->mesh_ref->skin_data.is_skinned);
+		assert(mesh->mesh_ref->flags & MESH_FLAG_SKINNED);
 		struct arena *resource_arena = resource_get_arena();
 		pose_get_matrix_palette(current, resource_arena, &mesh->mesh_ref->skin_data.pose_palette);
 
@@ -2006,8 +2006,10 @@ on_draw(sm__maybe_unused struct ctx *ctx)
 
 		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
 		renderer_blend_set((struct blend_state){.enable = STATE_TRUE, .mode = BLEND_MODE_ALPHA});
-		renderer_rasterizer_set(
-		    (struct rasterizer_state){.cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK});
+		renderer_rasterizer_set((struct rasterizer_state){
+		    .cull_enable = mesh->mesh_ref->flags & MESH_FLAG_DOUBLE_SIDED ? STATE_FALSE : STATE_TRUE,
+		    .cull_mode = CULL_MODE_BACK,
+		});
 		renderer_state_commit();
 
 		draw_mesh2(mesh);

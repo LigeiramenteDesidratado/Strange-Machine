@@ -2092,7 +2092,7 @@ upload_mesh(mesh_component *mesh)
 	glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m->ebo));
 	glCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, array_len(m->indices) * sizeof(u32), m->indices, GL_STATIC_DRAW));
 
-	if (m->skin_data.is_skinned)
+	if (m->flags & MESH_FLAG_SKINNED)
 	{
 		glCall(glGenBuffers(1, &m->skin_data.vbos[0]));
 		glCall(glBindBuffer(GL_ARRAY_BUFFER, m->skin_data.vbos[0]));

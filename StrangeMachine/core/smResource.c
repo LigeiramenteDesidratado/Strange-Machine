@@ -70,7 +70,7 @@ resource_mesh_print(struct mesh_resource *mesh)
 {
 	log_trace(str8_from("        - vertices: {u3d}"), array_len(mesh->positions));
 	log_trace(str8_from("        - indexed : {b}"), mesh->indices != 0);
-	log_trace(str8_from("        - skinned : {b}"), mesh->skin_data.is_skinned);
+	log_trace(str8_from("        - skinned : {b}"), (b8)(mesh->flags & MESH_FLAG_SKINNED));
 	log_trace(str8_from("        - flags   : {u3d}"), mesh->flags);
 }
 
@@ -1159,9 +1159,7 @@ fs_mesh_write(struct fs_file *file, struct mesh_resource *mesh)
 	fs_write_u32a(file, mesh->indices);
 
 	fs_write_u32(file, mesh->flags);
-
-	fs_write_b8(file, mesh->skin_data.is_skinned);
-	if (mesh->skin_data.is_skinned)
+	if (mesh->flags & MESH_FLAG_SKINNED)
 	{
 		fs_write_v4a(file, mesh->skin_data.weights);
 		fs_write_iv4a(file, mesh->skin_data.influences);
@@ -1181,8 +1179,7 @@ fs_mesh_read(struct fs_file *file, struct mesh_resource *mesh)
 
 	mesh->flags = fs_read_u32(file);
 
-	mesh->skin_data.is_skinned = fs_read_b8(file);
-	if (mesh->skin_data.is_skinned)
+	if (mesh->flags & MESH_FLAG_SKINNED)
 	{
 		mesh->skin_data.weights = fs_read_v4a(file);
 		mesh->skin_data.influences = fs_read_iv4a(file);

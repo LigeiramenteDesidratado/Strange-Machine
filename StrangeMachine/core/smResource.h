@@ -64,7 +64,6 @@ typedef struct mesh_resource
 
 	struct
 	{
-		b8 is_skinned;
 		array(v4) weights;
 		array(iv4) influences;
 		u32 vbos[2]; /* openGL vertex buffer objects */
@@ -85,15 +84,13 @@ typedef struct mesh_resource
 		MESH_FLAG_NONE = 0,
 		MESH_FLAG_DIRTY = BIT(0),
 		MESH_FLAG_RENDERABLE = BIT(1),
-		MESH_FLAG_ON_CPU = BIT(2),
-		MESH_FLAG_ON_GPU = BIT(3),
-		MESH_FLAG_SKINNED = BIT(4),
-		MESH_FLAG_DRAW_AABB = BIT(5),
-		MESH_FLAG_BLEND = BIT(6),
-		MESH_FLAG_DOUBLE_SIDED = BIT(7),
+		MESH_FLAG_SKINNED = BIT(2),
+		MESH_FLAG_DRAW_AABB = BIT(3),
+		MESH_FLAG_BLEND = BIT(4),
+		MESH_FLAG_DOUBLE_SIDED = BIT(5),
 
 		// enforce 32-bit size enum
-		MESH_FLAG_ENFORCE_ENUM_SIZE = 0x7fffffff
+		SM__MESH_FLAG_ENFORCE_ENUM_SIZE = 0x7fffffff
 	} flags;
 
 } mesh_resource;
@@ -355,8 +352,7 @@ i32 fs_file_eof(struct fs_file *file);
 i64 fs_file_tell(struct fs_file *file);
 i32 fs_file_seek(struct fs_file *file, u64 position);
 
-const i8 *
-fs_file_last_error(void);
+const i8 *fs_file_last_error(void);
 
 // Conversion tool utils
 b8 sm___resource_mock_init(i8 *argv[], str8 assets_folder);
