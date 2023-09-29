@@ -218,12 +218,12 @@ sync_semaphore_post(struct semaphore *sem, i32 count)
 	for (i32 i = 0; i < count; i++) { dispatch_semaphore_signal(_sem->handle); }
 }
 
-bool
+b8
 sync_semaphore_wait(struct semaphore *sem, i32 msecs)
 {
 	struct sm__semaphore *_sem = (struct sm__semaphore *)sem->data;
 	dispatch_time_t dt =
-	    msecs < 0 ? DISPATCH_TIME_FOREVER : dispatch_time(DISPATCH_TIME_NOW, (int64_t)msecs * 1000000ll);
+	    msecs < 0 ? DISPATCH_TIME_FOREVER : dispatch_time(DISPATCH_TIME_NOW, (i64)msecs * 1000000ll);
 	return !dispatch_semaphore_wait(_sem->handle, dt);
 }
 #endif
@@ -240,7 +240,7 @@ thread_fn(void *arg)
 	union
 	{
 		void *ptr;
-		int32_t i;
+		i32 i;
 	} cast;
 
 #	if SM_PLATFORM_APPLE
@@ -386,24 +386,24 @@ sync_mutex_try(struct mutex *mutex)
 }
 
 // Signal
-static inline uint64_t
+static inline u64
 sm__to_ns(const struct timespec *_ts)
 {
 	return _ts->tv_sec * UINT64_C(1000000000) + _ts->tv_nsec;
 }
 
 static inline void
-sm__to_time_spec_ns(struct timespec *_ts, uint64_t _nsecs)
+sm__to_time_spec_ns(struct timespec *_ts, u64 _nsecs)
 {
 	_ts->tv_sec = _nsecs / UINT64_C(1000000000);
 	_ts->tv_nsec = _nsecs % UINT64_C(1000000000);
 }
 
 static inline void
-sm__tm_add(struct timespec *_ts, int32_t _msecs)
+sm__tm_add(struct timespec *_ts, i32 _msecs)
 {
-	uint64_t ns = sm__to_ns(_ts);
-	sm__to_time_spec_ns(_ts, ns + (uint64_t)(_msecs)*1000000);
+	u64 ns = sm__to_ns(_ts);
+	sm__to_time_spec_ns(_ts, ns + (u64)(_msecs)*1000000);
 }
 
 void
@@ -453,7 +453,7 @@ sync_signal_wait(struct signal *sig, i32 msecs)
 		r = pthread_cond_timedwait(&_sig->cond, &_sig->mutex, &ts);
 	}
 
-	bool ok = r == 0;
+	b8 ok = r == 0;
 	if (ok) _sig->value = 0;
 	r = pthread_mutex_unlock(&_sig->mutex);
 	return ok;
@@ -518,7 +518,7 @@ sync_semaphore_wait(struct semaphore *sem, i32 msecs)
 		while (r == 0 && _sem->count <= 0) r = pthread_cond_timedwait(&_sem->cond, &_sem->mutex, &ts);
 	}
 
-	bool ok = r == 0;
+	b8 ok = r == 0;
 	if (ok) { --_sem->count; }
 	r = pthread_mutex_unlock(&_sem->mutex);
 	return ok;
@@ -554,7 +554,7 @@ sync_mutex_exit(struct mutex *mutex)
 	LeaveCriticalSection(&_m->handle);
 }
 
-bool
+b8
 sync_mutex_try(struct mutex *mutex)
 {
 	struct sm__mutex *_m = (struct sm__mutex *)mutex->data;
@@ -584,7 +584,7 @@ sync_semaphore_post(struct semaphore *sem, i32 count)
 	ReleaseSemaphore(_sem->handle, count, NULL);
 }
 
-bool
+b8
 sync_semaphore_wait(struct semaphore *sem, i32 msecs)
 {
 	struct sm__semaphore *_sem = (struct sm__semaphore *)sem->data;
@@ -634,7 +634,7 @@ sync_signal_raise(struct signal *sig)
 #	endif
 }
 
-bool
+b8
 sync_signal_wait(struct signal *sig, i32 msecs)
 {
 	struct sm__signal *_sig = (struct sm__signal *)sig->data;
@@ -670,8 +670,7 @@ thread_fn(LPVOID arg)
 }
 
 struct thread *
-thread_create(
-    struct arena *arena, thread_cb *callback, void *user_data1, i32 stack_sz, const char *name, void *user_data2)
+thread_create(struct arena *arena, thread_cb *callback, void *user_data1, i32 stack_sz, str8 name, void *user_data2)
 {
 	// struct thread *thrd = (struct thread *)sx_malloc(alloc, sizeof(sx_thread));
 	struct thread *thrd = arena_reserve(arena, sizeof(struct thread));
@@ -778,7 +777,7 @@ thread_tid(void)
 #elif SM_PLATFORM_APPLE
 	return (mach_port_t)pthread_mach_thread_np(pthread_self());
 #elif SM_PLATFORM_BSD
-	return *(uint32_t *)pthread_self();
+	return *(u32 *)pthread_self();
 #elif SM_PLATFORM_ANDROID
 	return gettid();
 #elif SM_PLATFORM_HURD
