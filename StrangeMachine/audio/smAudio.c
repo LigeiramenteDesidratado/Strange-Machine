@@ -7,19 +7,17 @@
 #define stringize(_x)  _stringize(_x)
 
 #if defined(__GNUC__)
-#	define sm__pragma_diagnostic_push()     _Pragma("GCC diagnostic push")
-#	define sm__pragma_diagnostic_pop()      _Pragma("GCC diagnostic pop")
-#	define sm__pragma_diagnostic_ignored(_x) _Pragma(stringize(GCC diagnostic ignored _x))
+#	define SM__PRAGMA_DIAGNOSTIC_PUSH()	  _Pragma("GCC diagnostic push")
+#	define SM__PRAGMA_DIAGNOSTIC_POP()	  _Pragma("GCC diagnostic pop")
+#	define SM__PRAGMA_DIAGNOSTIC_IGNORED(_x) _Pragma(stringize(GCC diagnostic ignored _x))
 
 #elif defined(__clang__)
-#	define sm__pragma_diagnostic_push()	_Pragma("clang diagnostic push")
-#	define sm__pragma_diagnostic_pop()	_Pragma("clang diagnostic pop")
-#	define sm__pragma_diagnostic_ignored(_x) _Pragma(sx_stringize(clang diagnostic ignored _x))
+#	define SM__PRAGMA_DIAGNOSTIC_PUSH()	  _Pragma("clang diagnostic push")
+#	define SM__PRAGMA_DIAGNOSTIC_POP()	  _Pragma("clang diagnostic pop")
+#	define SM__PRAGMA_DIAGNOSTIC_IGNORED(_x) _Pragma(sx_stringize(clang diagnostic ignored _x))
 #endif
-sm__pragma_diagnostic_push()
-sm__pragma_diagnostic_ignored("-Wmissing-prototypes")
+
 #include "vendor/miniaudio/miniaudio.h"
-sm__pragma_diagnostic_pop()
 
 #define GEN_NAME		       str8_audio
 #define GEN_KEY_TYPE		       str8
@@ -67,8 +65,12 @@ static struct audio_manager AC; // Audio Context
 #define DRMP3_REALLOC(p, newsz) arena_resize(&AC.arena, p, newsz)
 #define DRMP3_FREE(p)		arena_free(&AC.arena, p)
 
+SM__PRAGMA_DIAGNOSTIC_PUSH()
+SM__PRAGMA_DIAGNOSTIC_IGNORED("-Wmissing-prototypes")
+SM__PRAGMA_DIAGNOSTIC_IGNORED("-Wshadow")
 #define MINIAUDIO_IMPLEMENTATION
 #include "vendor/miniaudio/miniaudio.h"
+SM__PRAGMA_DIAGNOSTIC_POP()
 
 static void
 sm__physfs_log_last_error(str8 message)
