@@ -35,6 +35,7 @@ add_library(${PROJECT_NAME}
 	core/smLog.c
 	core/smBaseMemory.c
 	core/smArena.c
+	core/smThread.c
 
 	renderer/smRenderer.c
 	animation/smAnimation.c

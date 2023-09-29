@@ -3,7 +3,23 @@
 #include "core/smLog.h"
 #include "core/smResource.h"
 
+#define _stringize(_x) #_x
+#define stringize(_x)  _stringize(_x)
+
+#if defined(__GNUC__)
+#	define sm__pragma_diagnostic_push()     _Pragma("GCC diagnostic push")
+#	define sm__pragma_diagnostic_pop()      _Pragma("GCC diagnostic pop")
+#	define sm__pragma_diagnostic_ignored(_x) _Pragma(stringize(GCC diagnostic ignored _x))
+
+#elif defined(__clang__)
+#	define sm__pragma_diagnostic_push()	_Pragma("clang diagnostic push")
+#	define sm__pragma_diagnostic_pop()	_Pragma("clang diagnostic pop")
+#	define sm__pragma_diagnostic_ignored(_x) _Pragma(sx_stringize(clang diagnostic ignored _x))
+#endif
+sm__pragma_diagnostic_push()
+sm__pragma_diagnostic_ignored("-Wmissing-prototypes")
 #include "vendor/miniaudio/miniaudio.h"
+sm__pragma_diagnostic_pop()
 
 #define GEN_NAME		       str8_audio
 #define GEN_KEY_TYPE		       str8
