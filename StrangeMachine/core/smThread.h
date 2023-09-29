@@ -1,5 +1,5 @@
-#ifndef SM_CORE_THREAD
-#define SM_CORE_THREAD
+#ifndef SM_THREAD_H
+#define SM_THREAD_H
 
 // Modified version of https://github.com/septag/sx
 //
@@ -88,4 +88,4 @@ void sync_signal_release(struct signal *sig);
 void sync_signal_raise(struct signal *sig);
 b8 sync_signal_wait(struct signal *sig, i32 msecs);
 
-#endif // SM_CORE_THREAD
+#endif // SM_THREAD_H
