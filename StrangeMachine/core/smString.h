@@ -18,6 +18,9 @@ typedef struct
 	u32 size;
 } str8;
 
+b8 str8_init(void);
+void str8_teardown(void);
+
 #define str8_from(S) ((str8){.idata = S, .size = sizeof(S) - 1})
 str8 str8_from_cstr(struct arena *arena, const char *cstr);
 #define str8_from_cstr_stack(S) ((str8){.idata = S, .size = strlen(S)})

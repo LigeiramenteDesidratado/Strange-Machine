@@ -1,7 +1,7 @@
+#include "audio/smAudio.h"
 #include "core/smBaseMemory.h"
 #include "ecs/smStage.h"
 #include "renderer/smRenderer.h"
-#include "audio/smAudio.h"
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
@@ -73,12 +73,13 @@ struct core
 	enum
 	{
 		CORE_MEMORY = BIT(0),
-		CORE_LOG = BIT(1),
-		CORE_WINDOW = BIT(2),
-		CORE_RESOURCE = BIT(3),
-		CORE_SOUND = BIT(4),
-		CORE_RENDERER = BIT(5),
-		CORE_STAGE = BIT(6),
+		CORE_STR8 = BIT(1),
+		CORE_LOG = BIT(2),
+		CORE_WINDOW = BIT(3),
+		CORE_RESOURCE = BIT(4),
+		CORE_SOUND = BIT(5),
+		CORE_RENDERER = BIT(6),
+		CORE_STAGE = BIT(7),
 
 		SM__CORE_ENFORCE_ENUM_SIZE = 0x7fffffff
 	} modules;
@@ -165,6 +166,7 @@ sm__core_teardown_modules(void)
 	if (CC.modules & CORE_SOUND) { audio_manager_teardown(); }
 	if (CC.modules & CORE_WINDOW) { window_teardown(&CC.window); }
 	if (CC.modules & CORE_LOG) { log_teardown(); }
+	if (CC.modules & CORE_STR8) { str8_teardown(); }
 	if (CC.modules & CORE_MEMORY) { base_memory_teardown(); }
 }
 
@@ -182,6 +184,14 @@ core_init(struct core_init *core_init)
 	}
 
 	CC.modules |= CORE_MEMORY;
+
+	if (!str8_init())
+	{
+		sm__core_teardown_modules();
+		str8_println(str8_from("error initializing str8"));
+		return (false);
+	}
+	CC.modules |= CORE_STR8;
 
 	atexit(core__at_exit);
 
@@ -322,6 +332,8 @@ core_teardown(void)
 	window_teardown(&CC.window);
 
 	log_teardown();
+
+	str8_teardown();
 
 	base_memory_teardown();
 }

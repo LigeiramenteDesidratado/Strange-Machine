@@ -3,6 +3,7 @@
 #include "core/smCore.h"
 #include "core/smMM.h"
 #include "core/smString.h"
+#include "core/smThread.h"
 #include "math/smMath.h"
 
 static str8 str__conststr = str8_from("ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ");
@@ -13,14 +14,32 @@ static u8 str_buffer_data[1];
 static struct dyn_buf str_buffer =
     (struct dyn_buf){.data = str_buffer_data, .cap = ARRAY_SIZE(str_buffer_data), .len = 0};
 
+static struct mutex str8_mutex;
+
+b8
+str8_init(void)
+{
+	sync_mutex_init(&str8_mutex);
+
+	return (true);
+}
+
+void
+str8_teardown(void)
+{
+	sync_mutex_release(&str8_mutex);
+}
+
 void
 str8_buffer_flush(void)
 {
+	sync_mutex_lock(&str8_mutex);
 	if (str_buffer.len > 0)
 	{
 		write(1, str_buffer.data, str_buffer.len);
 		str_buffer.len = 0;
 	}
+	sync_mutex_unlock(&str8_mutex);
 }
 
 static void
@@ -30,8 +49,10 @@ sm__buffer_push(str8 str)
 	if (str.size > str_buffer.cap) { write(1, str.idata, str.size); }
 	else
 	{
+		sync_mutex_lock(&str8_mutex);
 		memcpy(str_buffer.data + str_buffer.len, str.data, str.size);
 		str_buffer.len += str.size;
+		sync_mutex_unlock(&str8_mutex);
 	}
 }
 
@@ -407,15 +428,12 @@ str8_dup(struct arena *arena, str8 str)
 void
 str8_print(str8 s)
 {
-	// write(1, s.data, s.size);
 	sm__buffer_push(s);
 }
 
 void
 str8_println(str8 s)
 {
-	// write(1, s.data, s.size);
-	// write(1, str8_newline_const.data, str8_newline_const.size);
 	sm__buffer_push(s);
 	sm__buffer_push(str8_newline_const);
 }
@@ -677,8 +695,6 @@ str8_printfln(struct arena *arena, str8 format, ...)
 
 	sm__buffer_push(output);
 	sm__buffer_push(str8_newline_const);
-	// write(1, output.data, output.size);
-	// write(1, str8_newline_const.data, str8_newline_const.size);
 
 	arena_free(arena, output.data);
 }
@@ -696,7 +712,6 @@ str8_printf(struct arena *arena, str8 format, ...)
 	va_end(args);
 
 	sm__buffer_push(output);
-	// write(1, output.data, output.size);
 
 	arena_free(arena, output.data);
 }
@@ -709,7 +724,6 @@ str8_vprintf(struct arena *arena, str8 format, va_list args)
 	output = sm__str_format(arena, format, args);
 
 	sm__buffer_push(output);
-	// write(1, output.data, output.size);
 
 	arena_free(arena, output.data);
 }

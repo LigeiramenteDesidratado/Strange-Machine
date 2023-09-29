@@ -6,6 +6,7 @@
 #include "core/smBaseMemory.h"
 #include "core/smMM.h"
 #include "core/smString.h"
+#include "core/smThread.h"
 #include "math/smMath.h"
 
 #define sm__debug_args	 , str8_from(sm__file_name), sm__file_line
