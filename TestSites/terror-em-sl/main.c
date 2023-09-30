@@ -2004,9 +2004,9 @@ on_draw(sm__maybe_unused struct ctx *ctx)
 		renderer_texture_set(mat->image, str8_from("u_tex0"));
 		renderer_texture_set(str8_from("bayer16tile2"), str8_from("u_bayer"));
 
-		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
-		renderer_blend_set((struct blend_state){.enable = STATE_TRUE, .mode = BLEND_MODE_ALPHA});
-		renderer_rasterizer_set((struct rasterizer_state){
+		renderer_depth_set(&(struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
+		renderer_blend_set(&(struct blend_state){.enable = STATE_TRUE, .mode = BLEND_MODE_ALPHA});
+		renderer_rasterizer_set(&(struct rasterizer_state){
 		    .cull_enable = mesh->mesh_ref->flags & MESH_FLAG_DOUBLE_SIDED ? STATE_FALSE : STATE_TRUE,
 		    .cull_mode = CULL_MODE_BACK,
 		});
@@ -2045,10 +2045,12 @@ on_draw(sm__maybe_unused struct ctx *ctx)
 			renderer_shader_set_uniform(str8_from("u_diffuse_color"), &v4_one(), sizeof(v4), 1);
 			renderer_texture_set(str8_from(""), str8_from("u_tex0"));
 		}
-		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
-		renderer_blend_set((struct blend_state){.enable = STATE_FALSE});
-		renderer_rasterizer_set(
-		    (struct rasterizer_state){.cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK});
+		renderer_depth_set(&(struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
+		renderer_blend_set(&(struct blend_state){.enable = STATE_FALSE});
+		renderer_rasterizer_set(&(struct rasterizer_state){
+		    .cull_enable = STATE_TRUE,
+		    .cull_mode = CULL_MODE_BACK,
+		});
 
 		renderer_state_commit();
 
@@ -2062,10 +2064,18 @@ on_draw(sm__maybe_unused struct ctx *ctx)
 
 		static enum blend_mode bl = 0;
 		if (core_key_pressed_lock(KEY_P, 5)) { bl = (bl + 1) % SM__BLEND_MODE_MAX; }
-		renderer_batch_blend_set((struct blend_state){.enable = STATE_TRUE, .mode = bl});
-		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
-		renderer_rasterizer_set(
-		    (struct rasterizer_state){.cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK});
+		renderer_blend_set(&(struct blend_state){
+		    .enable = STATE_TRUE,
+		    .mode = bl,
+		});
+		renderer_depth_set(&(struct depth_state){
+		    .enable = STATE_TRUE,
+		    .depth_func = DEPTH_FUNC_LEQUAL,
+		});
+		renderer_rasterizer_set(&(struct rasterizer_state){
+		    .cull_enable = STATE_TRUE,
+		    .cull_mode = CULL_MODE_BACK,
+		});
 
 		iter = stage_iter_begin(TRANSFORM | PARTICLE_EMITTER);
 		while (stage_iter_next(&iter))
@@ -2106,10 +2116,12 @@ on_draw(sm__maybe_unused struct ctx *ctx)
 	str8 name = {0};
 	renderer_batch3D_begin(camera);
 	{
-		renderer_blend_set((struct blend_state){.enable = STATE_FALSE});
-		renderer_depth_set((struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
-		renderer_rasterizer_set(
-		    (struct rasterizer_state){.cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK});
+		renderer_blend_set(&(struct blend_state){.enable = STATE_FALSE});
+		renderer_depth_set(&(struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL});
+		renderer_rasterizer_set(&(struct rasterizer_state){
+		    .cull_enable = STATE_TRUE,
+		    .cull_mode = CULL_MODE_BACK,
+		});
 
 		draw_line_3D(v3_zero(), v3_right(), color_from_v3(v3_right()));
 		draw_line_3D(v3_zero(), v3_forward(), color_from_v3(v3_forward()));
@@ -2228,10 +2240,13 @@ on_draw(sm__maybe_unused struct ctx *ctx)
 	renderer_batch_begin();
 	{
 		renderer_batch_sampler_set(str8_from("toshibasat8x8"));
-		renderer_batch_blend_set((struct blend_state){.enable = STATE_FALSE});
-		renderer_depth_set((struct depth_state){.enable = STATE_FALSE});
-		renderer_rasterizer_set((struct rasterizer_state){
-		    .cull_enable = STATE_TRUE, .cull_mode = CULL_MODE_BACK, .line_width = 1.0f});
+		renderer_blend_set(&(struct blend_state){.enable = STATE_FALSE});
+		renderer_depth_set(&(struct depth_state){.enable = STATE_FALSE});
+		renderer_rasterizer_set(&(struct rasterizer_state){
+		    .cull_enable = STATE_TRUE,
+		    .cull_mode = CULL_MODE_BACK,
+		    .line_width = 1.0f,
+		});
 
 		v2 position = v2_new(256.0f / 2, (256.f / 2.0f) / 2.0f);
 		v2 size = v2_new(256, 256.f / 2.0f);
