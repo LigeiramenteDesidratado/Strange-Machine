@@ -1214,47 +1214,50 @@ renderer_shader_set_uniform(str8 name, void *value, u32 size, u32 count)
 }
 
 void
-renderer_blend_set(struct blend_state blend)
+renderer_blend_set(const struct blend_state *blend)
 {
-	if ((blend.enable && RC.state.current_blend.enable != blend.enable) ||
-	    (blend.mode && RC.state.current_blend.mode != blend.mode))
+	if ((blend->enable && RC.state.current_blend.enable != blend->enable) ||
+	    (blend->mode && RC.state.current_blend.mode != blend->mode))
 	{
-		RC.state.selected_blend = blend;
+		RC.state.selected_blend = *blend;
 		RC.state.dirty |= DIRTY_BLEND;
 	}
 }
 
 void
-renderer_depth_set(struct depth_state depth)
+renderer_depth_set(const struct depth_state *depth)
 {
-	if ((depth.enable && RC.state.current_depth.enable != depth.enable) ||
-	    (depth.depth_func && RC.state.current_depth.depth_func != depth.depth_func))
+	if ((depth->enable && RC.state.current_depth.enable != depth->enable) ||
+	    (depth->depth_func && RC.state.current_depth.depth_func != depth->depth_func))
 	{
-		RC.state.selected_depth = depth;
+		RC.state.selected_depth = *depth;
 		RC.state.dirty |= DIRTY_DEPTH;
 	}
 }
 
 void
-renderer_rasterizer_set(struct rasterizer_state rasterizer)
+renderer_rasterizer_set(const struct rasterizer_state *rasterizer)
 {
-	if (rasterizer.cull_mode && RC.state.current_rasterizer.cull_mode != rasterizer.cull_mode) { goto dirty; }
-	if (rasterizer.cull_enable && RC.state.current_rasterizer.cull_enable != rasterizer.cull_enable) { goto dirty; }
-	if (rasterizer.winding_mode && RC.state.current_rasterizer.winding_mode != rasterizer.winding_mode)
+	if (rasterizer->cull_mode && RC.state.current_rasterizer.cull_mode != rasterizer->cull_mode) { goto dirty; }
+	if (rasterizer->cull_enable && RC.state.current_rasterizer.cull_enable != rasterizer->cull_enable)
 	{
 		goto dirty;
 	}
-	if (rasterizer.scissor && RC.state.current_rasterizer.scissor != rasterizer.scissor) { goto dirty; }
-	if (rasterizer.polygon_mode && RC.state.current_rasterizer.polygon_mode != rasterizer.polygon_mode)
+	if (rasterizer->winding_mode && RC.state.current_rasterizer.winding_mode != rasterizer->winding_mode)
 	{
 		goto dirty;
 	}
-	if (rasterizer.line_width && RC.state.current_rasterizer.line_width != rasterizer.line_width) { goto dirty; }
+	if (rasterizer->scissor && RC.state.current_rasterizer.scissor != rasterizer->scissor) { goto dirty; }
+	if (rasterizer->polygon_mode && RC.state.current_rasterizer.polygon_mode != rasterizer->polygon_mode)
+	{
+		goto dirty;
+	}
+	if (rasterizer->line_width && RC.state.current_rasterizer.line_width != rasterizer->line_width) { goto dirty; }
 
 	return;
 
 dirty:
-	RC.state.selected_rasterizer = rasterizer;
+	RC.state.selected_rasterizer = *rasterizer;
 	RC.state.dirty |= DIRTY_RASTERIZER;
 }
 
@@ -1796,12 +1799,6 @@ void
 renderer_batch_sampler_set(str8 sampler)
 {
 	renderer_texture_set(sampler, str8_from("u_tex0"));
-}
-
-void
-renderer_batch_blend_set(struct blend_state blend)
-{
-	renderer_blend_set(blend);
 }
 
 void

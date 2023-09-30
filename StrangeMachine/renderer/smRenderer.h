@@ -138,9 +138,9 @@ void renderer_shader_add(str8 shader_name, str8 vertex, str8 fragment);
 void renderer_shader_set(str8 shader_name);
 void renderer_shader_set_uniform(str8 name, void *value, u32 size, u32 count);
 
-void renderer_blend_set(struct blend_state blend);
-void renderer_depth_set(struct depth_state depth);
-void renderer_rasterizer_set(struct rasterizer_state rasterizer);
+void renderer_blend_set(const struct blend_state *blend);
+void renderer_depth_set(const struct depth_state *depth);
+void renderer_rasterizer_set(const struct rasterizer_state *rasterizer);
 
 void renderer_state_commit(void);
 void renderer_state_clear(void);
@@ -153,7 +153,6 @@ void renderer_batch_begin(void);
 void renderer_batch_end(void);
 
 void renderer_batch_sampler_set(str8 sampler);
-void renderer_batch_blend_set(struct blend_state blend);
 
 void upload_mesh(mesh_component *mesh);
 void draw_mesh(camera_component *camera, mesh_component *mesh, material_component *material, m4 model);
