@@ -57,7 +57,7 @@ add_library(${PROJECT_NAME}
 	)
 target_link_libraries(${PROJECT_NAME} PRIVATE glfw physfs-static PUBLIC cglm dl m pthread)
 
-target_compile_definitions(${PROJECT_NAME} PRIVATE "$<$<CONFIG:Debug>:SM_DEBUG>")
+target_compile_definitions(${PROJECT_NAME} PUBLIC "$<$<CONFIG:Debug>:SM_DEBUG>")
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/StrangeMachine/vendor/physfs/src/")
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/StrangeMachine/vendor/glfw/include/")
 target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/vendor/cglm/include/")
