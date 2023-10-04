@@ -143,7 +143,7 @@ typedef struct camera
 		v3 speed;
 
 		v2 mouse_smoothed;
-		v2 first_person_rotation;
+		v2 rotation_deg;
 
 		b8 is_controlled_by_keyboard_mouse;
 		v2 mouse_last_position;
@@ -161,7 +161,8 @@ typedef struct camera
 	struct
 	{
 		v2 mouse_smoothed;
-		v2 rotation;
+		v2 rotation_deg;
+		v3 speed;
 
 		f32 target_distance;
 		v3 target;

@@ -649,6 +649,11 @@ scene_camera_update_input(struct scene *scene, entity_t entity, camera_component
 	v2 offset = core_get_cursor_offset();
 	offset.y = -offset.y;
 	f32 wheel = core_get_scroll();
+
+	const float movement_acceleration = 1.0f;
+	const f32 movement_speed_max = 5.0f;
+	const f32 movement_drag = 10.0f;
+
 	if (camera->flags & CAMERA_FLAG_FREE)
 	{
 		// Detect if fps control should be activated
@@ -680,10 +685,6 @@ scene_camera_update_input(struct scene *scene, entity_t entity, camera_component
 		}
 
 		v3 movement_direction = v3_zero();
-		const float movement_acceleration = 1.0f;
-		const f32 movement_speed_max = 5.0f;
-		const f32 movement_drag = 10.0f;
-
 		if (camera->free.is_controlled_by_keyboard_mouse)
 		{
 			// Wrap around left and right screen edges (to allow for infinite scrolling)
@@ -707,8 +708,8 @@ scene_camera_update_input(struct scene *scene, entity_t entity, camera_component
 			glm_mat4_quat(transform->matrix.data, q.data);
 			v3 angles = quat_to_euler_angles(q);
 
-			camera->free.first_person_rotation.x = glm_deg(angles.yaw);
-			camera->free.first_person_rotation.y = glm_deg(angles.pitch);
+			camera->free.rotation_deg.x = glm_deg(angles.yaw);
+			camera->free.rotation_deg.y = glm_deg(angles.pitch);
 
 			f32 mouse_sensitivity = 0.2f;
 
@@ -719,17 +720,16 @@ scene_camera_update_input(struct scene *scene, entity_t entity, camera_component
 			glm_vec2_lerp(camera->free.mouse_smoothed.data, mouse_delta.data,
 			    glm_clamp_zo(1.0f - mouse_smoothing), camera->free.mouse_smoothed.data);
 
-			glm_vec2_add(camera->free.first_person_rotation.data, camera->free.mouse_smoothed.data,
-			    camera->free.first_person_rotation.data);
+			glm_vec2_add(camera->free.rotation_deg.data, camera->free.mouse_smoothed.data,
+			    camera->free.rotation_deg.data);
 
 			// clamp rotation along the x-axis (but not exactly at 90 degrees, this is to avoid a
 			// gimbal lock).
-			camera->free.first_person_rotation.y =
-			    glm_clamp(camera->free.first_person_rotation.y, -75.0f, 75.0f);
+			camera->free.rotation_deg.y = glm_clamp(camera->free.rotation_deg.y, -75.0f, 75.0f);
 
 			v4 xq, yq;
-			glm_quatv(xq.data, glm_rad(camera->free.first_person_rotation.x), v3_up().data);
-			glm_quatv(yq.data, glm_rad(camera->free.first_person_rotation.y), v3_right().data);
+			glm_quatv(xq.data, glm_rad(camera->free.rotation_deg.x), v3_up().data);
+			glm_quatv(yq.data, glm_rad(camera->free.rotation_deg.y), v3_right().data);
 
 			v4 rotation;
 			glm_quat_mul(xq.data, yq.data, rotation.data);
@@ -819,8 +819,8 @@ scene_camera_update_input(struct scene *scene, entity_t entity, camera_component
 		glm_mat4_quat(transform->matrix.data, q.data);
 
 		v3 angles = quat_to_euler_angles(q);
-		camera->third_person.rotation.x = glm_deg(angles.yaw);
-		camera->third_person.rotation.y = glm_deg(angles.pitch);
+		camera->third_person.rotation_deg.x = glm_deg(angles.yaw);
+		camera->third_person.rotation_deg.y = glm_deg(angles.pitch);
 
 		f32 mouse_sensitivity = 0.5f;
 
@@ -831,12 +831,12 @@ scene_camera_update_input(struct scene *scene, entity_t entity, camera_component
 		glm_vec2_lerp(camera->third_person.mouse_smoothed.data, mouse_delta.data,
 		    glm_clamp_zo(1.0f - mouse_smoothing), camera->third_person.mouse_smoothed.data);
 
-		glm_vec2_add(camera->third_person.rotation.data, camera->third_person.mouse_smoothed.data,
-		    camera->third_person.rotation.data);
+		glm_vec2_add(camera->third_person.rotation_deg.data, camera->third_person.mouse_smoothed.data,
+		    camera->third_person.rotation_deg.data);
 
 		// clamp rotation along the x-axis (but not exactly at 90 degrees, this is to avoid a
 		// gimbal lock).
-		camera->third_person.rotation.y = glm_clamp(camera->third_person.rotation.y, -75.0f, 75.0f);
+		camera->third_person.rotation_deg.y = glm_clamp(camera->third_person.rotation_deg.y, -75.0f, 75.0f);
 
 		// Zoom
 		if (wheel < 0.0f) { camera->third_person.target_distance *= 1.2f; }
@@ -845,8 +845,8 @@ scene_camera_update_input(struct scene *scene, entity_t entity, camera_component
 
 		v4 xq, yq;
 		v4 rotation;
-		glm_quatv(xq.data, glm_rad(camera->third_person.rotation.x), v3_up().data);
-		glm_quatv(yq.data, glm_rad(camera->third_person.rotation.y), v3_right().data);
+		glm_quatv(xq.data, glm_rad(camera->third_person.rotation_deg.x), v3_up().data);
+		glm_quatv(yq.data, glm_rad(camera->third_person.rotation_deg.y), v3_right().data);
 		glm_quat_mul(xq.data, yq.data, rotation.data);
 
 		// Calculate the camera's position based on the target's position and rotation
@@ -931,10 +931,10 @@ scene_camera_update(
 		glm_mat4_mul(cam->projection.data, cam->view.data, cam->view_projection.data);
 
 		// Sound
-		v3 look_at_inv;
-		glm_vec3_inv_to(transform->matrix.v3.forward.data, look_at_inv.data);
+		// v3 look_at_inv;
+		// glm_vec3_inv_to(transform->matrix.v3.forward.data, look_at_inv.data);
 		audio_set_listener_position(eye);
-		audio_set_listener_direction(look_at_inv);
+		audio_set_listener_direction(transform->matrix.v3.forward);
 	}
 
 	return (true);
@@ -1058,7 +1058,7 @@ scene_m4_palette_update(
 		armature_component *armature = scene_iter_get_component(&iter, ARMATURE);
 		mesh_component *mesh = scene_iter_get_component(&iter, MESH);
 
-		assert(mesh->mesh_ref->flags & MESH_FLAG_SKINNED);
+		sm__assert(mesh->mesh_ref->flags & MESH_FLAG_SKINNED);
 		struct arena *resource_arena = resource_get_arena();
 		pose_get_matrix_palette(current, resource_arena, &mesh->mesh_ref->skin_data.pose_palette);
 
@@ -1133,7 +1133,7 @@ scene_player_update(
 		glm_vec3_normalize_to(input.data, direction.data);
 		f32 dir_len = glm_vec3_norm(direction.data);
 
-		if (dir_len != 0.0f)
+		if (dir_len > 0.2f)
 		{
 			m4 view = camera->view;
 
@@ -1162,7 +1162,7 @@ scene_player_update(
 		else { player->state = ANIM_IDLE; }
 
 		f32 sprint = 1.0f;
-		if (core_key_pressed(KEY_LEFT_SHIFT))
+		if (player->state == ANIM_WALKING && core_key_pressed(KEY_LEFT_SHIFT))
 		{
 			sprint = 2.5f;
 			player->state = ANIM_RUNNING;
@@ -1338,7 +1338,7 @@ scene_player_update_viniL(
 
 		// if (core_key_pressed(KEY_F)) { player->state = ANIM_SITIDLE; }
 		// struct resource *resource_clip = resource_get_by_name(ctable_animation_names[player->state]);
-		// assert(resource_clip);
+		// sm__assert(resource_clip);
 		// clip->next_clip_ref = resource_clip->data;
 	}
 
@@ -1367,16 +1367,21 @@ void on_detach(sm__maybe_unused struct ctx *ctx);
 i32
 main(i32 argc, i8 *argv[])
 {
-#if 1 // TIKOTEKO
+#if 0 // TIKOTEKO
 #	define WIDTH  432
 #	define HEIGHT 768
 #	define SCALE  0.9
+#elif 1 // silent hill
+#	define WIDTH		   800
+#	define HEIGHT		   600
+#	define FRAMEBUFFER_WIDTH  320
+#	define FRAMEBUFFER_HEIGHT 224
+#	define SCALE		   0.5
 #else
 #	define WIDTH  800
 #	define HEIGHT 450
-#	define SCALE  0.9
+#	define SCALE  0.5
 #endif
-
 	struct core_init init_c = {
 	    .argc = argc,
 	    .argv = argv,
@@ -1385,8 +1390,8 @@ main(i32 argc, i8 *argv[])
 	    .h = HEIGHT,
 	    .total_memory = MB(32),
 
-	    .framebuffer_w = WIDTH * SCALE,
-	    .framebuffer_h = HEIGHT * SCALE,
+	    .framebuffer_w = FRAMEBUFFER_WIDTH,
+	    .framebuffer_h = FRAMEBUFFER_HEIGHT,
 	    .target_fps = 24,
 	    .fixed_fps = 48,
 
@@ -1446,7 +1451,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			camera->free.speed = v3_zero();
 			camera->free.movement_scroll_accumulator = 0;
 			camera->free.mouse_smoothed = v2_zero();
-			camera->free.first_person_rotation = v2_zero();
+			camera->free.rotation_deg = v2_zero();
 			camera->free.mouse_last_position = v2_zero();
 
 			// camera->free.focus_entity = player_ett;
@@ -1461,7 +1466,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 
 			camera->third_person.target_distance = 5;
 			camera->third_person.target = v3_zero();
-			camera->third_person.rotation = v2_zero();
+			camera->third_person.rotation_deg = v2_zero();
 			camera->third_person.mouse_smoothed = v2_zero();
 		}
 
@@ -1601,7 +1606,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			camera->free.speed = v3_zero();
 			camera->free.movement_scroll_accumulator = 0;
 			camera->free.mouse_smoothed = v2_zero();
-			camera->free.first_person_rotation = v2_zero();
+			camera->free.rotation_deg = v2_zero();
 			camera->free.mouse_last_position = v2_zero();
 
 			camera->free.focus_entity = v3_zero();
@@ -1615,7 +1620,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 
 			camera->third_person.target_distance = 5;
 			camera->third_person.target = v3_zero();
-			camera->third_person.rotation = v2_zero();
+			camera->third_person.rotation_deg = v2_zero();
 			camera->third_person.mouse_smoothed = v2_zero();
 		}
 
@@ -1635,7 +1640,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			if (viniL.handle != INVALID_HANDLE)
 			{
 				struct resource *resource_clip = resource_get_by_name(str8_from("idle"));
-				assert(resource_clip);
+				sm__assert(resource_clip);
 				clip_component *clip = stage_component_get_data(viniL, CLIP);
 				clip->next_clip_ref = resource_clip->data;
 
@@ -1662,7 +1667,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			if (spider.handle != INVALID_HANDLE)
 			{
 				struct resource *spider_walk = resource_get_by_name(str8_from("spider-walk"));
-				assert(spider_walk);
+				sm__assert(spider_walk);
 				clip_component *spider_clip = stage_component_get_data(spider, CLIP);
 				spider_clip->next_clip_ref = spider_walk->data;
 			}
@@ -1703,10 +1708,10 @@ on_update(sm__maybe_unused struct ctx *ctx)
 			// glm_quat_lerp(rot.data, q.data, 0.5f, rot.data);
 			// transform_set_rotation(transform, rot);
 
-			f32 y = (sinf(ctx->time)) * 2.0f;
+			f32 x = (sinf(ctx->time)) * 4.0f;
 			// transform_translate(transform, v3_new(y * ctx->dt, 0.0f, 0.0f));
 			// transform_rotate(transform, q);
-			scene_entity_translate(scene, entity, v3_new(y * ctx->dt, 0.0f, 0.0f));
+			scene_entity_translate(scene, entity, v3_new(x * ctx->dt, 0.0f, 0.0f));
 			scene_entity_rotate(scene, entity, q);
 		}
 	}
@@ -1868,13 +1873,13 @@ sm__debug_draw_camera(sm__maybe_unused struct ctx *ctx)
 	f32 yaw;
 	if (camera->flags & CAMERA_FLAG_THIRD_PERSON)
 	{
-		pitch = camera->third_person.rotation.x;
-		yaw = camera->third_person.rotation.y;
+		pitch = camera->third_person.rotation_deg.x;
+		yaw = camera->third_person.rotation_deg.y;
 	}
 	else
 	{
-		pitch = camera->free.first_person_rotation.x;
-		yaw = camera->free.first_person_rotation.y;
+		pitch = camera->free.rotation_deg.x;
+		yaw = camera->free.rotation_deg.y;
 	}
 
 	i8 buf[64] = {0};
@@ -2313,8 +2318,8 @@ on_draw(sm__maybe_unused struct ctx *ctx)
 		m4 view = camera_get_view(camera);
 
 		struct resource *resource = resource_get_by_name(str8_from("witch-finger"));
-		assert(resource);
-		assert(resource->type == RESOURCE_IMAGE);
+		sm__assert(resource);
+		sm__assert(resource->type == RESOURCE_IMAGE);
 
 		draw_billboard(view, resource->image_data, v3_new(0.0f, 5.0f, 0.0f),
 		    v2_new(resource->image_data->width * 0.02f, resource->image_data->height * 0.02f), cWHITE);
