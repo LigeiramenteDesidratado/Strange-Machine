@@ -98,6 +98,7 @@ while (!0)
 
 #	define sm__unimplemented(EXIT_IF_TRUE)
 #	define sm__assert(_ass)
+#	define sm__assertf(_ass, ...)
 
 #endif // SM_DEBUG
 
