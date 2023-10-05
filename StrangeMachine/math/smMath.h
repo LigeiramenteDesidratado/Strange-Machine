@@ -6,6 +6,12 @@
 #include "cglm/cglm.h"
 #include "core/smBase.h"
 
+// -------------------------------------------------------------------
+// ------------------------------------------------------------------
+// SCALAR VALUES
+// ------------------------------------------------------------------
+// ------------------------------------------------------------------
+
 /* https://stackoverflow.com/a/11398748 */
 static const u32 log2_tab32[32] = {0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30, 8, 12, 20, 28, 15, 17, 24,
     7, 19, 27, 23, 6, 26, 5, 4, 31};
@@ -36,6 +42,94 @@ fast_log2_64(u64 value)
 	value |= value >> 32;
 	return (log_tab64[((u64)((value - (value >> 1)) * 0x07EDD5E59A4E28C2)) >> 58]);
 }
+
+sm__force_inline f32
+repeat(f32 t, f32 length)
+{
+	return glm_clamp(t - floorf(t / length) * length, 0.0f, length);
+}
+
+// Calculates the shortest difference between two given angles (in radians).
+sm__force_inline f32
+delta_angle(f32 current, f32 target)
+{
+	f32 delta = repeat((target - current), 2.0f * M_PI);
+	if (delta > M_PI) { delta -= 2.0f * M_PI; }
+	return delta;
+}
+
+// same as lerp but makes sure the values interpolate correctly when they wrap around 2 PI radians
+sm__force_inline f32
+lerp_angle(f32 a, f32 b, f32 t)
+{
+	f32 delta = repeat((b - a), 2.0f * M_PI);
+	if (delta > M_PI) { delta -= 2.0f * M_PI; }
+	return a + delta * glm_clamp_zo(t);
+}
+
+// Moves a value /current/ towards /target/.
+sm__force_inline f32
+move_towards(f32 current, f32 target, f32 max_delta)
+{
+	if (fabsf(target - current) <= max_delta) { return target; }
+	return (current + glm_signf(target - current) * max_delta);
+}
+
+// Same as move_towards but makes sure the values interpolate correctly when they wrap around 2 PI radians
+sm__force_inline f32
+move_towards_angle(f32 current, f32 target, f32 max_delta)
+{
+	f32 da = delta_angle(current, target);
+	if (-max_delta < da && da < max_delta) { return target; }
+	target = current + da;
+	return move_towards(current, target, max_delta);
+}
+
+// Gradually changes a value towards a desired goal over time.
+sm__force_inline f32
+smooth_damp(f32 current, f32 target, f32 *current_velocity, f32 smooth_time, f32 max_speed, f32 delta_time)
+{
+	// Based on Game Programming Gems 4 Chapter 1.10
+	smooth_time = glm_max(0.0001f, smooth_time);
+	f32 omega = 2.0f / smooth_time;
+
+	f32 x = omega * delta_time;
+	f32 exp = 1.0f / (1.0f + x + 0.48f * x * x + 0.235f * x * x * x);
+	f32 change = current - target;
+	f32 original_to = target;
+
+	// Clamp maximum speed
+	f32 max_change = max_speed * smooth_time;
+	change = glm_clamp(change, -max_change, max_change);
+	target = current - change;
+
+	f32 temp = (*current_velocity + omega * change) * delta_time;
+	*current_velocity = (*current_velocity - omega * temp) * exp;
+	f32 output = target + (change + temp) * exp;
+
+	// Prevent overshooting
+	if ((original_to - current > 0.0f) == (output > original_to))
+	{
+		output = original_to;
+		*current_velocity = (output - original_to) / delta_time;
+	}
+
+	return output;
+}
+
+// gradually changes an angle given in radians towards a desired goal angle over time.
+sm__force_inline f32
+smooth_damp_angle(f32 current, f32 target, f32 *current_velocity, f32 smooth_time, f32 max_speed, f32 delta_time)
+{
+	target = current + delta_angle(current, target);
+	return smooth_damp(current, target, current_velocity, smooth_time, max_speed, delta_time);
+}
+
+// -------------------------------------------------------------------
+// ------------------------------------------------------------------
+// VECTOR VALUES
+// ------------------------------------------------------------------
+// ------------------------------------------------------------------
 
 /* Use the same memory for the anonynous structure and the byte array field `data` */
 typedef union v2
@@ -178,6 +272,100 @@ typedef union v3
 #define v3_down()     v3_new(0.0f, -1.0f, 0.0f)
 #define v3_forward()  v3_new(0.0f, 0.0f, 1.0f)
 #define v3_backward() v3_new(0.0f, 0.0f, -1.0f)
+
+// Moves a point current in a straight line towards a target point.
+sm__force_inline v3
+v3_move_towards(v3 current, v3 target, f32 max_distance_delta)
+{
+	// avoid vector ops because current scripting backends are terrible at inlining
+	f32 to_vector_x = target.x - current.x;
+	f32 to_vector_y = target.y - current.y;
+	f32 to_vector_z = target.z - current.z;
+
+	f32 sq_dist = to_vector_x * to_vector_x + to_vector_y * to_vector_y + to_vector_z * to_vector_z;
+
+	if (sq_dist == 0.0f || (max_distance_delta >= 0.0f && sq_dist <= max_distance_delta * max_distance_delta))
+	{
+		return target;
+	}
+	f32 dist = sqrtf(sq_dist);
+
+	return v3_new(current.x + to_vector_x / dist * max_distance_delta,
+	    current.y + to_vector_y / dist * max_distance_delta, current.z + to_vector_z / dist * max_distance_delta);
+}
+
+// Gradually changes a vector towards a desired goal over time.
+sm__force_inline v3
+v3_smooth_damp(v3 current, v3 target, v3 *current_velocity, f32 smooth_time, f32 max_speed, f32 delta_time)
+{
+	f32 output_x = 0.0f;
+	f32 output_y = 0.0f;
+	f32 output_z = 0.0f;
+
+	// Based on Game Programming Gems 4 Chapter 1.10
+	smooth_time = glm_max(0.0001f, smooth_time);
+	f32 omega = 2.0f / smooth_time;
+
+	f32 x = omega * delta_time;
+	f32 exp = 1.0f / (1.0f + x + 0.48F * x * x + 0.235F * x * x * x);
+
+	f32 change_x = current.x - target.x;
+	f32 change_y = current.y - target.y;
+	f32 change_z = current.z - target.z;
+	v3 originalTo = target;
+
+	// Clamp maximum speed
+	f32 max_change = max_speed * smooth_time;
+
+	f32 max_change_sq = max_change * max_change;
+	f32 sqrmag = change_x * change_x + change_y * change_y + change_z * change_z;
+	if (sqrmag > max_change_sq)
+	{
+		f32 mag = sqrtf(sqrmag);
+		change_x = change_x / mag * max_change;
+		change_y = change_y / mag * max_change;
+		change_z = change_z / mag * max_change;
+	}
+
+	target.x = current.x - change_x;
+	target.y = current.y - change_y;
+	target.z = current.z - change_z;
+
+	f32 temp_x = (current_velocity->x + omega * change_x) * delta_time;
+	f32 temp_y = (current_velocity->y + omega * change_y) * delta_time;
+	f32 temp_z = (current_velocity->z + omega * change_z) * delta_time;
+
+	current_velocity->x = (current_velocity->x - omega * temp_x) * exp;
+	current_velocity->y = (current_velocity->y - omega * temp_y) * exp;
+	current_velocity->z = (current_velocity->z - omega * temp_z) * exp;
+
+	output_x = target.x + (change_x + temp_x) * exp;
+	output_y = target.y + (change_y + temp_y) * exp;
+	output_z = target.z + (change_z + temp_z) * exp;
+
+	// Prevent overshooting
+	f32 orig_minus_current_x = originalTo.x - current.x;
+	f32 orig_minus_current_y = originalTo.y - current.y;
+	f32 orig_minus_current_z = originalTo.z - current.z;
+	f32 out_minus_orig_x = output_x - originalTo.x;
+	f32 out_minus_orig_y = output_y - originalTo.y;
+	f32 out_minus_orig_z = output_z - originalTo.z;
+
+	if (orig_minus_current_x * out_minus_orig_x + orig_minus_current_y * out_minus_orig_y +
+		orig_minus_current_z * out_minus_orig_z >
+	    0)
+	{
+		output_x = originalTo.x;
+		output_y = originalTo.y;
+		output_z = originalTo.z;
+
+		current_velocity->x = (output_x - originalTo.x) / delta_time;
+		current_velocity->y = (output_y - originalTo.y) / delta_time;
+		current_velocity->z = (output_z - originalTo.z) / delta_time;
+	}
+
+	return v3_new(output_x, output_y, output_z);
+}
 
 /* A vector with 3 i32 components */
 typedef union iv3
