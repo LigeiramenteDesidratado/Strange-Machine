@@ -114,8 +114,8 @@ collision_sphere_triangle(
 	glm_vec3_cross(v_1, v_2, n);
 	glm_vec3_normalize(n);
 
-	/* assert that the struct triangle is not degenerate. */
-	assert(glm_vec3_norm2(n) > 0.0f);
+	/* sm__assert that the struct triangle is not degenerate. */
+	sm__assert(glm_vec3_norm2(n) > 0.0f);
 
 	/* Find the nearest feature on the struct triangle to the struct sphere. */
 	vec3 sub;
@@ -270,8 +270,8 @@ collision_capsule_triangle(
 	glm_vec3_cross(v_1, v_2, n);
 	glm_vec3_normalize(n);
 
-	// assert that the struct triangle is not degenerate.
-	assert(glm_vec3_norm2(n) > 0.0f);
+	// sm__assert that the struct triangle is not degenerate.
+	sm__assert(glm_vec3_norm2(n) > 0.0f);
 
 	vec3 reference_point;
 	vec3 capsule_normal;
@@ -431,9 +431,9 @@ collision_capsule_mesh(struct capsule c, const mesh_component *mesh, transform_c
 	struct aabb c_aabb = shape_get_aabb_capsule(c);
 
 #if SM_DEBUG
-	assert(glm_aabb_isvalid(mesh_ref->aabb.data));
-	assert(glm_vec3_isvalid(mesh_ref->aabb.min.data));
-	assert(glm_vec3_isvalid(mesh_ref->aabb.max.data));
+	sm__assert(glm_aabb_isvalid(mesh_ref->aabb.data));
+	sm__assert(glm_vec3_isvalid(mesh_ref->aabb.min.data));
+	sm__assert(glm_vec3_isvalid(mesh_ref->aabb.max.data));
 #endif
 
 	struct aabb mesh_aabb;
@@ -442,7 +442,7 @@ collision_capsule_mesh(struct capsule c, const mesh_component *mesh, transform_c
 	if (!glm_aabb_aabb(c_aabb.data, mesh_aabb.data)) { return (best_result); }
 
 	// TODO: support for vertex array without indices
-	assert(array_len(mesh_ref->indices));
+	sm__assert(array_len(mesh_ref->indices));
 	for (u32 index = 0; index < array_len(mesh_ref->indices); index += 3)
 	{
 		struct triangle triangle;
@@ -478,9 +478,9 @@ collision_sphere_mesh(struct sphere s, mesh_component *mesh, transform_component
 	mesh_resource *mesh_ref = mesh->mesh_ref;
 
 #if SM_DEBUG
-	assert(glm_aabb_isvalid(mesh_ref->aabb.data));
-	assert(glm_vec3_isvalid(mesh_ref->aabb.min.data));
-	assert(glm_vec3_isvalid(mesh_ref->aabb.max.data));
+	sm__assert(glm_aabb_isvalid(mesh_ref->aabb.data));
+	sm__assert(glm_vec3_isvalid(mesh_ref->aabb.min.data));
+	sm__assert(glm_vec3_isvalid(mesh_ref->aabb.max.data));
 #endif
 
 	struct aabb mesh_aabb;
@@ -490,7 +490,7 @@ collision_sphere_mesh(struct sphere s, mesh_component *mesh, transform_component
 	if (!glm_aabb_aabb(s_aabb.data, mesh_aabb.data)) { return (best_result); }
 
 	// TODO: support for vertex array without indices
-	assert(array_len(mesh_ref->indices));
+	sm__assert(array_len(mesh_ref->indices));
 	for (u32 index = 0; index < array_len(mesh_ref->indices); index += 3)
 	{
 		struct triangle triangle;
@@ -649,7 +649,7 @@ collision_ray_mesh(struct ray ray, mesh_component *mesh, transform_component *tr
 	struct intersect_result ray_aabb_result = collision_ray_aabb(ray, mesh_aabb);
 	if (!ray_aabb_result.valid) { return (best_result); }
 
-	assert(array_len(mesh_ref->indices));
+	sm__assert(array_len(mesh_ref->indices));
 	for (u32 index = 0; index < array_len(mesh_ref->indices); index += 3)
 	{
 		struct triangle triangle;

@@ -96,8 +96,8 @@ shape_get_positions_aabb(array(v3) positions)
 	// Create the bounding box
 	struct aabb result;
 
-	v3 min_vert;
-	v3 max_vert;
+	v3 min_vert = v3_zero();
+	v3 max_vert = v3_zero();
 
 	if (positions != 0)
 	{

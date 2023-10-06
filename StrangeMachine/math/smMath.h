@@ -12,6 +12,8 @@
 // ------------------------------------------------------------------
 // ------------------------------------------------------------------
 
+#define scalar_print(_scalar) printf("%s\n\t%f\n", #_scalar, _scalar)
+
 /* https://stackoverflow.com/a/11398748 */
 static const u32 log2_tab32[32] = {0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30, 8, 12, 20, 28, 15, 17, 24,
     7, 19, 27, 23, 6, 26, 5, 4, 31};
@@ -153,7 +155,7 @@ typedef union v2
 	vec2 data;
 } v2;
 
-#define v2_print(V)  printf("%s\n\t%f, %f\n", #V, (V).x, (V).y);
+#define v2_print(V)  printf("%s\n\t%f, %f\n", #V, (V).x, (V).y)
 #define v2_new(X, Y) ((union v2){.x = (X), .y = (Y)})
 #define v2_zero()    v2_new(0.0f, 0.0f)
 #define v2_one()     v2_new(1.0f, 1.0f)
@@ -171,7 +173,7 @@ typedef union iv2
 	ivec2 data;
 } iv2;
 
-#define iv2_print(V)  printf("%s\n\t%d, %d\n", #V, (V).x, (V).y);
+#define iv2_print(V)  printf("%s\n\t%d, %d\n", #V, (V).x, (V).y)
 #define iv2_new(X, Y) ((union iv2){.x = (X), .y = (Y)})
 #define iv2_zero()    iv2_new(0, 0)
 #define iv2_one()     iv2_new(1, 1)
@@ -190,7 +192,7 @@ typedef union uiv2
 
 } uiv2;
 
-#define uiv2_print(V)  printf("%s\n\t%d, %d\n", #V, (V).x, (V).y);
+#define uiv2_print(V)  printf("%s\n\t%d, %d\n", #V, (V).x, (V).y)
 #define uiv2_new(X, Y) ((union uiv2){.x = (X), .y = (Y)})
 #define uiv2_zero()    uiv2_new(0, 0)
 #define uiv2_one()     uiv2_new(1, 1)
@@ -209,7 +211,7 @@ typedef union bv2
 
 } bv2;
 
-#define bv2_print(V)  printf("%s\n\t%d, %d\n", #V, ((V).x) ? "true" : "false", ((V).y) ? "true" : "false");
+#define bv2_print(V)  printf("%s\n\t%d, %d\n", #V, ((V).x) ? "true" : "false", ((V).y) ? "true" : "false")
 #define bv2_new(X, Y) ((union bv2){.x = (X), .y = (Y)})
 #define bv2_false()   bv2_new(false, false)
 #define bv2_true()    bv2_new(true, true)
@@ -441,7 +443,7 @@ typedef union bv3
 
 #define bv3_print(V)                                                                             \
 	printf("%s\n\t%s, %s, %s\n", #V, ((V).x) ? "true" : "false", ((V).y) ? "true" : "false", \
-	    ((V).z) ? "true" : "false");
+	    ((V).z) ? "true" : "false")
 #define bv3_new(X, Y, Z) ((union bv3){.x = (X), .y = (Y), .z = (Z)})
 #define bv3_false()	 bv3_new(false, false, false)
 #define bv3_true()	 bv3_new(true, true, true)
@@ -480,7 +482,7 @@ typedef CGLM_ALIGN_IF(16) union v4
 	vec4 data;
 } v4;
 
-#define v4_print(V)	   printf("%s\n\t%f, %f, %f, %f\n", #V, (V).x, (V).y, (V).z, (V).w);
+#define v4_print(V)	   printf("%s\n\t%f, %f, %f, %f\n", #V, (V).x, (V).y, (V).z, (V).w)
 #define v4_new(X, Y, Z, W) ((union v4){.x = (X), .y = (Y), .z = (Z), .w = (W)})
 #define v4_zero()	   v4_new(0.0f, 0.0f, 0.0f, 0.0f)
 #define v4_one()	   v4_new(1.0f, 1.0f, 1.0f, 1.0f)
@@ -500,7 +502,7 @@ typedef union iv4
 	ivec4 data;
 } iv4;
 
-#define iv4_print(V)	    printf("%s\n\t%d, %d, %d, %d\n", #V, (V).x, (V).y, (V).z, (V).w);
+#define iv4_print(V)	    printf("%s\n\t%d, %d, %d, %d\n", #V, (V).x, (V).y, (V).z, (V).w)
 #define iv4_new(X, Y, Z, W) ((union iv4){.x = (X), .y = (Y), .z = (Z), .w = (W)})
 #define iv4_zero()	    iv4_new(0, 0, 0, 0)
 #define iv4_one()	    iv4_new(1, 1, 1, 1)
@@ -520,7 +522,7 @@ typedef union uiv4
 	u32 data[4];
 } uiv4;
 
-#define uiv4_print(V)	     printf("%s\n\t%u, %u, %u, %u\n", #V, (V).x, (V).y, (V).z, (V).w);
+#define uiv4_print(V)	     printf("%s\n\t%u, %u, %u, %u\n", #V, (V).x, (V).y, (V).z, (V).w)
 #define uiv4_new(X, Y, Z, W) ((union uiv4){.x = (X), .y = (Y), .z = (Z), .w = (W)})
 #define uiv4_zero()	     uiv4_new(0, 0, 0, 0)
 #define uiv4_one()	     uiv4_new(1, 1, 1, 1)
@@ -542,7 +544,7 @@ typedef union bv4
 
 #define bv4_print(V)                                                                                 \
 	printf("%s\n\t%s, %s, %s, %s\n", #V, ((V).x) ? "true" : "false", ((V).y) ? "true" : "false", \
-	    ((V).z) ? "true" : "false", ((V).w) ? "true" : "false");
+	    ((V).z) ? "true" : "false", ((V).w) ? "true" : "false")
 #define bv4_new(X, Y, Z, W) ((union uiv4){.x = (X), .y = (Y), .z = (Z), .w = (W)})
 #define bv4_false()	    bv4_new(false, false, false, false)
 #define bv4_true()	    bv4_new(true, true, true, true)
