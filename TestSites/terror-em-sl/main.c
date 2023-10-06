@@ -53,9 +53,10 @@ rigid_body_handle_capsule(
     struct scene *scene, struct ctx *ctx, entity_t entity, rigid_body_component *rb, transform_component *transform)
 {
 	v3 position = transform->transform_local.translation.v3;
-	v3 c;
-	glm_vec3_sub(rb->capsule.tip.data, rb->capsule.base.data, c.data);
-	f32 height = glm_vec3_norm(c.data);
+	// v3 c;
+	// glm_vec3_sub(rb->capsule.tip.data, rb->capsule.base.data, c.data);
+	// f32 height = glm_vec3_norm(c.data);
+	f32 height = glm_vec3_distance(rb->capsule.tip.data, rb->capsule.base.data);
 	f32 radius = rb->capsule.radius;
 
 	b8 ground_intersect = false;
@@ -1105,8 +1106,10 @@ scene_player_update(
 	    scene, TRANSFORM | MESH | MATERIAL | ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER | RIGID_BODY | PLAYER);
 	while (scene_iter_next(scene, &iter))
 	{
+		entity_t player_ett = scene_iter_get_entity(&iter);
 		entity_t cam_ett = scene_get_main_camera(scene);
-		camera_component *camera = scene_component_get_data(scene, cam_ett, CAMERA); // TODO
+		camera_component *camera = scene_component_get_data(scene, cam_ett, CAMERA);		     // TODO
+		transform_component *camera_transform = scene_component_get_data(scene, cam_ett, TRANSFORM); // TODO
 
 		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
 		// world_component *world = scene_iter_get_component(&iter, WORLD);
@@ -1119,78 +1122,76 @@ scene_player_update(
 		cross_fade_controller_component *cfc = scene_iter_get_component(&iter, CROSS_FADE_CONTROLLER);
 		rigid_body_component *rb = scene_iter_get_component(&iter, RIGID_BODY);
 		player_component *player = scene_iter_get_component(&iter, PLAYER);
-		entity_t player_ett = scene_iter_get_entity(&iter);
 
 		v3 input;
 		if (camera->flags & CAMERA_FLAG_FREE) { input = v3_zero(); }
 		else
 		{
 			input = v3_new(core_key_pressed(KEY_A) - core_key_pressed(KEY_D), 0,
-			    core_key_pressed(KEY_S) - core_key_pressed(KEY_W));
+			    core_key_pressed(KEY_W) - core_key_pressed(KEY_S));
 		}
 
 		v3 direction;
 		glm_vec3_normalize_to(input.data, direction.data);
 		f32 dir_len = glm_vec3_norm(direction.data);
-
 		if (dir_len > 0.2f)
 		{
-			m4 view = camera->view;
+			v4 q;
+			glm_mat4_quat(camera_transform->matrix.data, q.data);
+			v3 camera_angles = quat_to_euler_angles(q);
 
-			v3 fwd = view.v3.forward;
-			fwd.y = 0.0f;
-			fwd.x = -fwd.x;
+			v3 player_angles = quat_to_euler_angles(transform->transform_local.rotation);
 
-			v3 right = view.v3.right;
-			right.x = -right.x;
-			right.y = 0.0f;
+			player->target_angle = atan2f(direction.x, direction.z) + camera_angles.y;
 
-			glm_vec3_scale(fwd.data, direction.z, fwd.data);
-			glm_vec3_scale(right.data, direction.x, right.data);
+			static f32 rotation_angle = 0.0f;
+			const f32 rotation_smooth_time = 0.12f;
+			f32 rotation = smooth_damp_angle(player_angles.y, player->target_angle, &rotation_angle,
+			    rotation_smooth_time, 1000.0f, ctx->dt);
 
-			glm_vec3_add(fwd.data, right.data, direction.data);
+			v4 quat_rot = quat_from_euler_angles(0.0f, rotation, 0.0f);
+			scene_entity_set_rotation(scene, player_ett, quat_rot);
 
-			f32 angle = atan2f(direction.x, direction.z);
-
-			v4 rotation;
-			glm_quatv(rotation.data, angle, v3_up().data);
-			glm_quat_slerp(transform->transform_local.rotation.data, rotation.data, .5f, rotation.data);
-			// transform_set_rotation(transform, rotation);
-			scene_entity_set_rotation(scene, player_ett, rotation);
-			player->state = ANIM_WALKING;
+			player->anim_state = ANIM_WALKING;
 		}
-		else { player->state = ANIM_IDLE; }
+		else
+		{
+			player->anim_state = ANIM_IDLE;
+			player->target_angle = 0.0f;
+		}
 
 		f32 sprint = 1.0f;
-		if (player->state == ANIM_WALKING && core_key_pressed(KEY_LEFT_SHIFT))
+		if (player->anim_state == ANIM_WALKING && core_key_pressed(KEY_LEFT_SHIFT))
 		{
 			sprint = 2.5f;
-			player->state = ANIM_RUNNING;
+			player->anim_state = ANIM_RUNNING;
 		}
-		glm_vec3_scale(direction.data, sprint * 25.0f * ctx->dt, direction.data);
 
-		glm_vec3_add(rb->velocity.data, direction.data, rb->velocity.data);
+		v3 target_direction;
+		v4 quat_rot = quat_from_euler_angles(0.0f, player->target_angle, 0.0f);
+		glm_quat_rotatev(quat_rot.data, v3_forward().data, target_direction.data);
+		glm_vec3_normalize(target_direction.data);
 
-		// glm_vec3_lerp(camera->target.data, transform->position.v3.data, .5f, camera->target.data);
-		v3 target = transform->transform_local.translation.v3;
+		glm_vec3_scale(target_direction.data, sprint * player->speed * ctx->dt, target_direction.data);
+		glm_vec3_add(rb->velocity.data, target_direction.data, rb->velocity.data);
 
-		if (glm_vec3_norm(rb->velocity.data) < 0.01f) { player->state = ANIM_IDLE; }
+		if (glm_vec3_norm(rb->velocity.data) < 0.01f) { player->anim_state = ANIM_IDLE; }
 
-		v3 c;
-		glm_vec3_sub(rb->capsule.tip.data, rb->capsule.base.data, c.data);
-		f32 height = glm_vec3_norm(c.data);
-		target.y += height;
-
-		camera->third_person.target = target;
+		camera->third_person.target = transform->transform_local.translation.v3;
+		camera->third_person.target.y += glm_vec3_distance(rb->capsule.tip.data, rb->capsule.base.data);
 
 		// glm_vec3_smoothinterp(camera->target.data, target.data, 10.0f * ctx->dt, camera->target.data);
 
-		if (core_key_pressed(KEY_H)) { player->state = ANIM_LEAN_LEFT; }
-		struct resource *resource_clip = resource_get_by_name(ctable_animation_names[player->state]);
+		if (core_key_pressed(KEY_H)) { player->anim_state = ANIM_LEAN_LEFT; }
+		struct resource *resource_clip = resource_get_by_name(ctable_animation_names[player->anim_state]);
 		if (resource_clip) { clip->next_clip_ref = resource_clip->data; }
-		else { log_warn(str8_from("[{s}] clip resource not found"), ctable_animation_names[player->state]); }
+		else
+		{
+			log_warn(
+			    str8_from("[{s}] clip resource not found"), ctable_animation_names[player->anim_state]);
+		}
 
-		if (player->state == ANIM_RUNNING)
+		if (player->anim_state == ANIM_RUNNING)
 		{
 			for (u32 i = 0; i < array_len(clip->current_clip_ref->tracks); ++i)
 			{
@@ -1217,7 +1218,7 @@ scene_player_update(
 				if (found) { break; }
 			}
 		}
-		if (player->state == ANIM_WALKING)
+		if (player->anim_state == ANIM_WALKING)
 		{
 			for (u32 i = 0; i < array_len(clip->current_clip_ref->tracks); ++i)
 			{
@@ -1257,8 +1258,10 @@ scene_player_update_viniL(
 	    scene, TRANSFORM | MESH | MATERIAL | ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER | RIGID_BODY | PLAYER);
 	while (scene_iter_next(scene, &iter))
 	{
+		entity_t player_ett = scene_iter_get_entity(&iter);
 		entity_t cam_ett = scene_get_main_camera(scene);
-		camera_component *camera = scene_component_get_data(scene, cam_ett, CAMERA); // TODO
+		camera_component *camera = scene_component_get_data(scene, cam_ett, CAMERA);		     // TODO
+		transform_component *camera_transform = scene_component_get_data(scene, cam_ett, TRANSFORM); // TODO
 
 		transform_component *transform = scene_iter_get_component(&iter, TRANSFORM);
 		// world_component *world = scene_iter_get_component(&iter, WORLD);
@@ -1278,32 +1281,23 @@ scene_player_update_viniL(
 		v3 direction;
 		glm_vec3_normalize_to(input.data, direction.data);
 		f32 dir_len = glm_vec3_norm(direction.data);
-
 		if (dir_len != 0.0f)
 		{
-			m4 view = (camera->view);
+			v4 q;
+			glm_mat4_quat(camera_transform->matrix.data, q.data);
+			v3 camera_angles = quat_to_euler_angles(q);
 
-			v3 fwd = view.v3.forward;
-			fwd.y = 0.0f;
-			fwd.z = -fwd.z;
+			v3 player_angles = quat_to_euler_angles(transform->transform_local.rotation);
 
-			v3 right = view.v3.right;
-			right.y = 0.0f;
-			right.x = -right.x;
+			player->target_angle = atan2f(direction.x, direction.z) + camera_angles.y;
 
-			glm_vec3_scale(fwd.data, direction.z, fwd.data);
-			glm_vec3_scale(right.data, direction.x, right.data);
+			static f32 rotation_angle = 0.0f;
+			const f32 rotation_smooth_time = 0.12f;
+			f32 rotation = smooth_damp_angle(player_angles.y, player->target_angle, &rotation_angle,
+			    rotation_smooth_time, 1000.0f, ctx->dt);
 
-			glm_vec3_add(fwd.data, right.data, direction.data);
-
-			f32 angle = atan2f(direction.x, direction.z);
-
-			v4 rotation;
-			glm_quatv(rotation.data, angle, v3_up().data);
-			glm_quat_slerp(transform->transform_local.rotation.data, rotation.data, .5f,
-			    transform->transform_local.rotation.data);
-			// transform_set_dirty(transform, true);
-			// player->state = ANIM_WALKING;
+			v4 quat_rot = quat_from_euler_angles(0.0f, rotation, 0.0f);
+			scene_entity_set_rotation(scene, player_ett, quat_rot);
 		}
 		else
 		{ /* player->state = ANIM_IDLE; */
@@ -1392,7 +1386,7 @@ main(i32 argc, i8 *argv[])
 
 	    .framebuffer_w = FRAMEBUFFER_WIDTH,
 	    .framebuffer_h = FRAMEBUFFER_HEIGHT,
-	    .target_fps = 24,
+	    .target_fps = 30,
 	    .fixed_fps = 48,
 
 	    .prng_seed = 42,
@@ -1552,6 +1546,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			transform_component *transform = stage_component_get_data(player_ett, TRANSFORM);
 			rigid_body_component *rigid_body = stage_component_get_data(player_ett, RIGID_BODY);
 			material_component *material = stage_component_get_data(player_ett, MATERIAL);
+			player_component *player = stage_component_get_data(player_ett, PLAYER);
 			material->material_ref->image = str8_from("Woman");
 			mesh_component *mesh = stage_component_get_data(player_ett, MESH);
 			mesh->mesh_ref->flags |= MESH_FLAG_DRAW_AABB;
@@ -1568,6 +1563,11 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			v3 base = transform->transform_local.translation.v3;
 			v3 tip = transform->transform_local.translation.v3;
 			tip.y += 2.1f;
+
+			f32 speed = 25.0f;
+			memcpy((f32 *)&player->speed, &speed, sizeof(f32));
+			player->anim_state = ANIM_IDLE;
+			player->target_angle = 0.0f;
 
 			rigid_body->capsule = (struct capsule){.base = base, .tip = tip, 0.4f};
 		}

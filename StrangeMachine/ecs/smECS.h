@@ -369,7 +369,10 @@ typedef struct cross_fade_controller
 
 typedef struct player
 {
-	u32 state;
+	u32 anim_state;
+
+	f32 target_angle;
+	const f32 speed;
 } player_component;
 
 enum emission_shape
