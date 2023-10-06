@@ -53,14 +53,69 @@ rigid_body_handle_capsule(
     struct scene *scene, struct ctx *ctx, entity_t entity, rigid_body_component *rb, transform_component *transform)
 {
 	v3 position = transform->transform_local.translation.v3;
-	// v3 c;
-	// glm_vec3_sub(rb->capsule.tip.data, rb->capsule.base.data, c.data);
-	// f32 height = glm_vec3_norm(c.data);
 	f32 height = glm_vec3_distance(rb->capsule.tip.data, rb->capsule.base.data);
 	f32 radius = rb->capsule.radius;
-
 	b8 ground_intersect = false;
 
+	glm_vec3_add(rb->force.data, v3_new(0.0f, -0.2f, 0.0f).data, rb->force.data);
+	glm_vec3_scale(rb->force.data, ctx->dt, rb->velocity.data);
+
+	f32 fixed_update_remain = ctx->dt;
+	f32 fixed_dt = ctx->fixed_dt / ctx->dt;
+
+	while (fixed_update_remain > 0)
+	{
+		fixed_update_remain = fixed_update_remain - ctx->fixed_dt;
+		v3 step;
+		glm_vec3_scale(rb->velocity.data, fixed_dt, step.data);
+		glm_vec3_add(position.data, step.data, position.data);
+
+		v3 tip;
+		glm_vec3_add(position.data, v3_new(0.0f, height, 0.0f).data, tip.data);
+		rb->capsule = (struct capsule){.base = position, .tip = tip, radius};
+
+		struct intersect_result result = rigid_body_intersects(scene, rb);
+		if (!result.valid) { continue; }
+
+		f32 slope = glm_vec3_dot(result.normal.data, v3_up().data);
+		f32 slope_threshold = 0.1f;
+
+		if (rb->velocity.y < 0.0f && slope > slope_threshold)
+		{
+			rb->velocity.y = 0.0f;
+			glm_vec3_add(position.data, v3_new(0.0f, result.depth, 0.0f).data, position.data);
+			// glm_vec3_add(position.data, result.velocity.data, position.data);
+
+			const f32 GROUND_FRICTION = 0.75;
+			const f32 AIR_FRICTION = 0.62;
+			glm_vec3_scale(rb->force.data, GROUND_FRICTION, rb->force.data);
+			ground_intersect = true;
+		}
+		else if (slope <= slope_threshold)
+		{
+			// Slide on contact surface:
+			f32 velocity_len = glm_vec3_norm(rb->velocity.data);
+
+			v3 velocity_normalized;
+			glm_vec3_normalize_to(rb->velocity.data, velocity_normalized.data);
+			v3 undesired_motion, desired_motion;
+			glm_vec3_scale(result.normal.data, glm_vec3_dot(velocity_normalized.data, result.normal.data),
+			    undesired_motion.data);
+			glm_vec3_sub(velocity_normalized.data, undesired_motion.data, desired_motion.data);
+			if (ground_intersect) { desired_motion.y = 0.0f; }
+			glm_vec3_scale(desired_motion.data, velocity_len, rb->velocity.data);
+			v3 offset;
+			glm_vec3_scale(result.normal.data, result.depth, offset.data);
+			glm_vec3_add(position.data, offset.data, position.data);
+		}
+	}
+
+	v3 translate;
+	v3 original_position = transform->transform_local.translation.v3;
+	glm_vec3_sub(position.data, original_position.data, translate.data);
+	scene_entity_translate(scene, entity, translate);
+
+#if 0
 	const u32 ccd_max = 5;
 	for (u32 i = 0; i < ccd_max; ++i)
 	{
@@ -148,6 +203,7 @@ rigid_body_handle_capsule(
 	v3 original_position = transform->transform_local.translation.v3;
 	glm_vec3_sub(position.data, original_position.data, sub.data);
 	scene_entity_translate(scene, entity, sub);
+#endif
 	// transform_translate(transform, sub);
 	// glm_vec3_add(
 	//     transform->transform_local.position.v3.data, sub.data, transform->transform_local.position.v3.data);
@@ -158,6 +214,7 @@ void
 rigid_body_handle_sphere(
     struct scene *scene, struct ctx *ctx, entity_t entity, rigid_body_component *rb, transform_component *transform)
 {
+#if 0 
 	v3 position = transform->transform_local.translation.v3;
 	f32 radius = rb->sphere.radius;
 
@@ -246,6 +303,7 @@ rigid_body_handle_sphere(
 	scene_entity_translate(scene, entity, sub);
 	// glm_vec3_add(transform->transform_local.position.v3.data, sub.data, transform->position.v3.data);
 	// transform_set_dirty(transform, true);
+#endif
 }
 
 b8
@@ -1151,31 +1209,30 @@ scene_player_update(
 
 			v4 quat_rot = quat_from_euler_angles(0.0f, rotation, 0.0f);
 			scene_entity_set_rotation(scene, player_ett, quat_rot);
-
 			player->anim_state = ANIM_WALKING;
+
+			v3 target_direction;
+			quat_rot = quat_from_euler_angles(0.0f, player->target_angle, 0.0f);
+			glm_quat_rotatev(quat_rot.data, v3_forward().data, target_direction.data);
+			glm_vec3_normalize(target_direction.data);
+
+			f32 sprint = 1.0f;
+			if (player->anim_state == ANIM_WALKING && core_key_pressed(KEY_LEFT_SHIFT))
+			{
+				sprint = 2.5f;
+				player->anim_state = ANIM_RUNNING;
+			}
+
+			glm_vec3_scale(target_direction.data, sprint * player->speed * ctx->dt, target_direction.data);
+			glm_vec3_add(rb->force.data, target_direction.data, rb->force.data);
+
+			if (glm_vec3_norm(rb->force.data) < 0.01f) { player->anim_state = ANIM_IDLE; }
 		}
 		else
 		{
 			player->anim_state = ANIM_IDLE;
 			player->target_angle = 0.0f;
 		}
-
-		f32 sprint = 1.0f;
-		if (player->anim_state == ANIM_WALKING && core_key_pressed(KEY_LEFT_SHIFT))
-		{
-			sprint = 2.5f;
-			player->anim_state = ANIM_RUNNING;
-		}
-
-		v3 target_direction;
-		v4 quat_rot = quat_from_euler_angles(0.0f, player->target_angle, 0.0f);
-		glm_quat_rotatev(quat_rot.data, v3_forward().data, target_direction.data);
-		glm_vec3_normalize(target_direction.data);
-
-		glm_vec3_scale(target_direction.data, sprint * player->speed * ctx->dt, target_direction.data);
-		glm_vec3_add(rb->velocity.data, target_direction.data, rb->velocity.data);
-
-		if (glm_vec3_norm(rb->velocity.data) < 0.01f) { player->anim_state = ANIM_IDLE; }
 
 		camera->third_person.target = transform->transform_local.translation.v3;
 		camera->third_person.target.y += glm_vec3_distance(rb->capsule.tip.data, rb->capsule.base.data);
@@ -1275,8 +1332,13 @@ scene_player_update_viniL(
 		rigid_body_component *rb = scene_iter_get_component(&iter, RIGID_BODY);
 		player_component *player = scene_iter_get_component(&iter, PLAYER);
 
-		v3 input = v3_new(core_key_pressed(KEY_A) - core_key_pressed(KEY_D), 0,
-		    core_key_pressed(KEY_W) - core_key_pressed(KEY_S));
+		v3 input;
+		if (camera->flags & CAMERA_FLAG_FREE) { input = v3_zero(); }
+		else
+		{
+			input = v3_new(core_key_pressed(KEY_A) - core_key_pressed(KEY_D), 0,
+			    core_key_pressed(KEY_W) - core_key_pressed(KEY_S));
+		}
 
 		v3 direction;
 		glm_vec3_normalize_to(input.data, direction.data);
@@ -1298,6 +1360,24 @@ scene_player_update_viniL(
 
 			v4 quat_rot = quat_from_euler_angles(0.0f, rotation, 0.0f);
 			scene_entity_set_rotation(scene, player_ett, quat_rot);
+			player->anim_state = ANIM_WALKING;
+
+			v3 target_direction;
+			quat_rot = quat_from_euler_angles(0.0f, player->target_angle, 0.0f);
+			glm_quat_rotatev(quat_rot.data, v3_forward().data, target_direction.data);
+			glm_vec3_normalize(target_direction.data);
+
+			f32 sprint = 1.0f;
+			if (player->anim_state == ANIM_WALKING && core_key_pressed(KEY_LEFT_SHIFT))
+			{
+				sprint = 2.5f;
+				player->anim_state = ANIM_RUNNING;
+			}
+
+			glm_vec3_scale(target_direction.data, sprint * player->speed * ctx->dt, target_direction.data);
+			glm_vec3_add(rb->force.data, target_direction.data, rb->force.data);
+
+			if (glm_vec3_norm(rb->force.data) < 0.01f) { player->anim_state = ANIM_IDLE; }
 		}
 		else
 		{ /* player->state = ANIM_IDLE; */
@@ -1309,15 +1389,14 @@ scene_player_update_viniL(
 			sprint = 2.5f;
 			// player->state = ANIM_RUNNING;
 		}
-		glm_vec3_scale(direction.data, sprint * 18.0f * ctx->dt, direction.data);
+		// glm_vec3_scale(direction.data, sprint * 18.0f * ctx->dt, direction.data);
 
 		// if (camera->fov < 12.0f) { camera->fov = 12.0f; }
 		// else if (camera->fov > 80.0f) { camera->fov = 80.0f; }
-		glm_vec3_add(rb->velocity.data, direction.data, rb->velocity.data);
+		// glm_vec3_add(rb->velocity.data, direction.data, rb->velocity.data);
 
 		// glm_vec3_lerp(camera->target.data, transform->position.v3.data, .5f, camera->target.data);
 		v3 target = transform->transform_local.translation.v3;
-
 		if (glm_vec3_norm(rb->velocity.data) < 0.01f)
 		{ /*  player->state = ANIM_IDLE;  */
 		}
@@ -1556,7 +1635,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			transform->transform_local.rotation = v4_new(0.0f, 0.0f, 0.0f, 1.0f);
 
 			rigid_body->velocity = v3_zero();
-			rigid_body->gravity = v3_zero();
+			// rigid_body->gravity = v3_zero();
 			rigid_body->collision_shape = RB_SHAPE_CAPSULE;
 			rigid_body->has_gravity = true;
 
@@ -1564,7 +1643,7 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			v3 tip = transform->transform_local.translation.v3;
 			tip.y += 2.1f;
 
-			f32 speed = 25.0f;
+			f32 speed = 8.0f;
 			memcpy((f32 *)&player->speed, &speed, sizeof(f32));
 			player->anim_state = ANIM_IDLE;
 			player->target_angle = 0.0f;
@@ -1572,10 +1651,6 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 			rigid_body->capsule = (struct capsule){.base = base, .tip = tip, 0.4f};
 		}
 	}
-
-	// ================================================================
-	// ================================================================
-	// ================================================================
 
 	// ================================================================
 	// ================================================================
@@ -1651,13 +1726,19 @@ on_attach(sm__maybe_unused struct ctx *ctx)
 
 				rigid_body_component *rigid_body = stage_component_get_data(viniL, RIGID_BODY);
 				rigid_body->velocity = v3_zero();
-				rigid_body->gravity = v3_zero();
+				// rigid_body->gravity = v3_zero();
 				rigid_body->collision_shape = RB_SHAPE_CAPSULE;
 				rigid_body->has_gravity = true;
 
 				v3 base = transform->transform_local.translation.v3;
 				v3 tip = transform->transform_local.translation.v3;
 				tip.y += 2.1f;
+
+				player_component *player = stage_component_get_data(viniL, PLAYER);
+				f32 speed = 8.0f;
+				memcpy((f32 *)&player->speed, &speed, sizeof(f32));
+				player->anim_state = ANIM_IDLE;
+				player->target_angle = 0.0f;
 
 				rigid_body->capsule = (struct capsule){.base = base, .tip = tip, 0.4f};
 			}

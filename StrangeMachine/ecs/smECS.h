@@ -326,9 +326,9 @@ typedef struct rigid_body
 		struct capsule capsule;
 	};
 
+	v3 force;
 	v3 velocity;
 	b8 has_gravity;
-	v3 gravity;
 
 } rigid_body_component;
 
