@@ -139,19 +139,19 @@ sm__component_pool_unmake_ref(struct component_pool *comp_pool, handle_t handle)
 		case MESH:
 			{
 				mesh_component *mesh = (mesh_component *)data;
-				if (mesh->resource_ref) { resource_unmake_reference(mesh->resource_ref); }
+				if (mesh->resource_ref) { resource_ref_dec(mesh->resource_ref); }
 			}
 			break;
 		case MATERIAL:
 			{
 				material_component *material = (material_component *)data;
-				if (material->resource_ref) { resource_unmake_reference(material->resource_ref); }
+				if (material->resource_ref) { resource_ref_dec(material->resource_ref); }
 			}
 			break;
 		case ARMATURE:
 			{
 				armature_component *armature = (armature_component *)data;
-				if (armature->resource_ref) { resource_unmake_reference(armature->resource_ref); }
+				if (armature->resource_ref) { resource_ref_dec(armature->resource_ref); }
 			}
 			break;
 		default:

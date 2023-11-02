@@ -15,7 +15,8 @@ endif()
 
 add_subdirectory(StrangeMachine)
 if (BUILD_EXAMPLES)
-  add_subdirectory(TestSites/terror-em-sl)
+  # add_subdirectory(TestSites/terror-em-sl)
+  add_subdirectory(TestSites/renderer)
   # add_subdirectory(TestSites/world3D)
 endif()
 

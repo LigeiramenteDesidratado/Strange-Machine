@@ -422,34 +422,34 @@ collision_sphere_cube(struct sphere s, struct cube c, struct intersect_result *r
 }
 
 struct intersect_result
-collision_capsule_mesh(struct capsule c, const mesh_component *mesh, transform_component *transform)
+collision_capsule_mesh(struct capsule c, struct sm__resource_mesh *mesh, transform_component *transform)
 {
 	struct intersect_result best_result = {0};
 
-	mesh_resource *mesh_ref = mesh->mesh_ref;
+	// mesh_resource *mesh_ref = mesh->mesh_ref;
 
 	struct aabb c_aabb = shape_get_aabb_capsule(c);
 
 #if SM_DEBUG
-	sm__assert(glm_aabb_isvalid(mesh_ref->aabb.data));
-	sm__assert(glm_vec3_isvalid(mesh_ref->aabb.min.data));
-	sm__assert(glm_vec3_isvalid(mesh_ref->aabb.max.data));
+	sm__assert(glm_aabb_isvalid(mesh->aabb.data));
+	sm__assert(glm_vec3_isvalid(mesh->aabb.min.data));
+	sm__assert(glm_vec3_isvalid(mesh->aabb.max.data));
 #endif
 
 	struct aabb mesh_aabb;
-	glm_aabb_transform(mesh_ref->aabb.data, transform->matrix.data, mesh_aabb.data);
+	glm_aabb_transform(mesh->aabb.data, transform->matrix.data, mesh_aabb.data);
 
 	if (!glm_aabb_aabb(c_aabb.data, mesh_aabb.data)) { return (best_result); }
 
 	// TODO: support for vertex array without indices
-	sm__assert(array_len(mesh_ref->indices));
-	for (u32 index = 0; index < array_len(mesh_ref->indices); index += 3)
+	sm__assert(array_len(mesh->indices));
+	for (u32 index = 0; index < array_len(mesh->indices); index += 3)
 	{
 		struct triangle triangle;
 
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 0]].data, triangle.p0.data);
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 1]].data, triangle.p1.data);
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 2]].data, triangle.p2.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 0]].data, triangle.p0.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 1]].data, triangle.p1.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 2]].data, triangle.p2.data);
 
 		glm_mat4_mulv3(transform->matrix.data, triangle.p0.data, 1.0f, triangle.p0.data);
 		glm_mat4_mulv3(transform->matrix.data, triangle.p1.data, 1.0f, triangle.p1.data);
@@ -471,33 +471,31 @@ collision_capsule_mesh(struct capsule c, const mesh_component *mesh, transform_c
 }
 
 struct intersect_result
-collision_sphere_mesh(struct sphere s, mesh_component *mesh, transform_component *transform)
+collision_sphere_mesh(struct sphere s, struct sm__resource_mesh *mesh, transform_component *transform)
 {
 	struct intersect_result best_result = {0};
 
-	mesh_resource *mesh_ref = mesh->mesh_ref;
-
 #if SM_DEBUG
-	sm__assert(glm_aabb_isvalid(mesh_ref->aabb.data));
-	sm__assert(glm_vec3_isvalid(mesh_ref->aabb.min.data));
-	sm__assert(glm_vec3_isvalid(mesh_ref->aabb.max.data));
+	sm__assert(glm_aabb_isvalid(mesh->aabb.data));
+	sm__assert(glm_vec3_isvalid(mesh->aabb.min.data));
+	sm__assert(glm_vec3_isvalid(mesh->aabb.max.data));
 #endif
 
 	struct aabb mesh_aabb;
-	glm_aabb_transform(mesh_ref->aabb.data, transform->matrix.data, mesh_aabb.data);
+	glm_aabb_transform(mesh->aabb.data, transform->matrix.data, mesh_aabb.data);
 
 	struct aabb s_aabb = shape_get_aabb_sphere(s);
 	if (!glm_aabb_aabb(s_aabb.data, mesh_aabb.data)) { return (best_result); }
 
 	// TODO: support for vertex array without indices
-	sm__assert(array_len(mesh_ref->indices));
-	for (u32 index = 0; index < array_len(mesh_ref->indices); index += 3)
+	sm__assert(array_len(mesh->indices));
+	for (u32 index = 0; index < array_len(mesh->indices); index += 3)
 	{
 		struct triangle triangle;
 
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 0]].data, triangle.p0.data);
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 1]].data, triangle.p1.data);
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 2]].data, triangle.p2.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 0]].data, triangle.p0.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 1]].data, triangle.p1.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 2]].data, triangle.p2.data);
 
 		glm_mat4_mulv3(transform->matrix.data, triangle.p0.data, 1.0f, triangle.p0.data);
 		glm_mat4_mulv3(transform->matrix.data, triangle.p1.data, 1.0f, triangle.p1.data);
@@ -637,26 +635,25 @@ collision_ray_aabb(struct ray ray, struct aabb aabb)
 }
 
 struct intersect_result
-collision_ray_mesh(struct ray ray, mesh_component *mesh, transform_component *transform)
+collision_ray_mesh(struct ray ray, struct sm__resource_mesh *mesh, transform_component *transform)
 {
 	struct intersect_result best_result = {0};
 
-	const mesh_resource *mesh_ref = mesh->mesh_ref;
-	struct aabb mesh_aabb = mesh_ref->aabb;
+	struct aabb mesh_aabb = mesh->aabb;
 
 	glm_aabb_transform(mesh_aabb.data, transform->matrix.data, mesh_aabb.data);
 
 	struct intersect_result ray_aabb_result = collision_ray_aabb(ray, mesh_aabb);
 	if (!ray_aabb_result.valid) { return (best_result); }
 
-	sm__assert(array_len(mesh_ref->indices));
-	for (u32 index = 0; index < array_len(mesh_ref->indices); index += 3)
+	sm__assert(array_len(mesh->indices));
+	for (u32 index = 0; index < array_len(mesh->indices); index += 3)
 	{
 		struct triangle triangle;
 
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 0]].data, triangle.p0.data);
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 1]].data, triangle.p1.data);
-		glm_vec3_copy(mesh_ref->positions[mesh_ref->indices[index + 2]].data, triangle.p2.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 0]].data, triangle.p0.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 1]].data, triangle.p1.data);
+		glm_vec3_copy(mesh->positions[mesh->indices[index + 2]].data, triangle.p2.data);
 
 		glm_mat4_mulv3(transform->matrix.data, triangle.p0.data, 1.0f, triangle.p0.data);
 		glm_mat4_mulv3(transform->matrix.data, triangle.p1.data, 1.0f, triangle.p1.data);

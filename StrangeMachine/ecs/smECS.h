@@ -9,6 +9,7 @@
 #include "core/smString.h"
 #include "math/smMath.h"
 #include "particle/smParticle.h"
+#include "renderer/smRenderer.h"
 
 typedef u64 component_t;
 
@@ -109,9 +110,10 @@ transform_init(transform_component *transform)
 
 typedef struct material
 {
-	material_resource *material_ref;
 	struct resource *resource_ref;
+	material_resource material_handle;
 
+	texture_handle texture_handle;
 } material_component;
 
 typedef struct camera
@@ -309,23 +311,24 @@ typedef struct static_body
 
 typedef struct armature
 {
-	armature_resource *armature_ref;
 	struct resource *resource_ref;
+	armature_resource armature_handle;
 } armature_component;
 
 typedef struct pose pose_component;
 
 typedef struct clip
 {
-	clip_resource *current_clip_ref;
-	clip_resource *next_clip_ref;
+	clip_resource current_clip_handle;
+	clip_resource next_clip_handle;
 	f32 time;
 } clip_component;
 
 struct cross_fade_target
 {
-	clip_resource *clip_ref;
-	pose_component *pose_ref;
+	clip_resource clip_handle;
+	struct pose *pose_ref;
+
 	f32 time;
 	f32 duration;
 	f32 elapsed;

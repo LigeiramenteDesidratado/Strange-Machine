@@ -238,7 +238,7 @@ struct DLLnode
 #define dll_remove_multiple(n1, n2)	    (dll_remove_multiple_((n1), (n2)))
 
 // Resource
-b8 resource_manager_init(char *argv[], str8 assets_folder);
+b32 resource_manager_init(char *argv[], str8 assets_folder);
 void resource_manager_teardown(void);
 struct arena *resource_get_arena(void);
 

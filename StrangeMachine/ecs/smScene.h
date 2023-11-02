@@ -4,7 +4,7 @@
 #include "ecs/smECS.h"
 
 struct scene;
-typedef b8 (*system_f)(struct arena *arena, struct scene *scene, struct ctx *ctx, void *user_data);
+typedef b32 (*system_f)(struct arena *arena, struct scene *scene, struct ctx *ctx, void *user_data);
 
 struct system_info
 {
@@ -40,6 +40,11 @@ struct node
 	u32 component_pool_index;
 };
 
+typedef void (*scene_pipeline_attach_f)(struct arena *arena, struct scene *scene, struct ctx *ctx);
+typedef void (*scene_pipeline_update_f)(struct arena *arena, struct scene *scene, struct ctx *ctx, void *user_data);
+typedef void (*scene_pipeline_draw_f)(struct arena *arena, struct scene *scene, struct ctx *ctx, void *user_data);
+typedef void (*scene_pipeline_detach_f)(struct arena *arena, struct scene *scene, struct ctx *ctx, void *user_data);
+
 struct scene
 {
 	struct arena *arena;
@@ -47,24 +52,33 @@ struct scene
 	u32 nodes_cap;
 	struct node *nodes;
 
+	entity_t main_camera;
+
 	array(struct system_info) sys_info;
 	array(struct component_pool) component_handle_pool;
 
-	entity_t main_camera;
-	v3 gravity_force;
+	void *user_data;
+	scene_pipeline_attach_f attach;
+	scene_pipeline_update_f update;
+	scene_pipeline_draw_f draw;
+	scene_pipeline_detach_f detach;
 };
 
 void scene_make(struct arena *arena, struct scene *scene);
 void scene_release(struct arena *arena, struct scene *scene);
+void scene_mount_pipeline(struct scene *scene, scene_pipeline_attach_f attach, scene_pipeline_update_f update,
+    scene_pipeline_draw_f draw, scene_pipeline_detach_f detach);
 
-entity_t scene_load(struct arena *arena, struct scene *scene, str8 name);
-entity_t scene_load_animated(struct arena *arena, struct scene *scene, str8 name);
+void scene_on_attach(struct arena *arena, struct scene *scene, struct ctx *ctx);
+void scene_on_detach(struct arena *arena, struct scene *scene, struct ctx *ctx);
+void scene_on_update(struct arena *arena, struct scene *scene, struct ctx *ctx);
+void scene_on_draw(struct arena *arena, struct scene *scene, struct ctx *ctx);
 
-entity_t scene_set_main_camera(struct scene *scene, entity_t camera_entity);
+void scene_set_main_camera(struct scene *scene, entity_t entity);
 entity_t scene_get_main_camera(struct scene *scene);
-v3 scene_set_gravity_force(struct scene *scene, v3 gravity);
+camera_component *scene_get_main_camera_data(struct scene *scene);
 
-void scene_copy(struct scene *dest, struct scene *src);
+void scene_load(struct arena *arena, struct scene *scene, str8 name);
 
 // Loop through all valid components and decrement the reference counter.
 // Useful when you want to clear the arena but don't want to waste CPU cycles freeing each component individually
@@ -92,10 +106,6 @@ void scene_entity_translate(struct scene *scene, entity_t self, v3 delta);
 void scene_entity_rotate(struct scene *scene, entity_t self, v4 delta);
 
 void scene_system_register(struct arena *arena, struct scene *scene, str8 name, system_f system, void *user_data);
-struct scene_iter scene_iter_begin(struct scene *scene, component_t constraint);
-b8 scene_iter_next(struct scene *scene, struct scene_iter *iter);
-void *scene_iter_get_component(struct scene_iter *iter, component_t component);
-entity_t scene_iter_get_entity(struct scene_iter *iter);
 void scene_system_run(struct arena *arena, struct scene *scene, struct ctx *ctx);
 
 struct scene_iter
@@ -112,6 +122,7 @@ struct scene_iter
 struct scene_iter scene_iter_begin(struct scene *scene, component_t constraint);
 b8 scene_iter_next(struct scene *scene, struct scene_iter *iter);
 void *scene_iter_get_component(struct scene_iter *iter, component_t component);
+entity_t scene_iter_get_entity(struct scene_iter *iter);
 
 void scene_print_archeype(struct arena *arena, struct scene *scene, entity_t entity);
 

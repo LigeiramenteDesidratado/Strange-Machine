@@ -272,10 +272,10 @@ sm__gltf_load_materials(cgltf_data *data)
 	{
 		// if (i == 1) { break; }
 		const cgltf_material *gltf_material = &data->materials[i];
-		struct material_resource material = {0};
-		material.color = cWHITE;
-
 		str8 material_name = str8_from_cstr(Garena, gltf_material->name);
+
+		struct resource_material_desc material = {.label = material_name};
+		material.color = cWHITE;
 
 		if (gltf_material->has_pbr_metallic_roughness)
 		{
@@ -289,24 +289,22 @@ sm__gltf_load_materials(cgltf_data *data)
 				i8 *image_name =
 				    gltf_material->pbr_metallic_roughness.base_color_texture.texture->image->name;
 				str8 str_image_name = str8_from_cstr(Garena, image_name);
-				struct resource *image_resource = resource_get_by_name(str_image_name);
+				struct resource *image_resource = resource_get_by_label(str_image_name);
 
-				assert(image_resource->name.size != 0);
-				material.image = image_resource->name;
-				// material.image_ref = resource_make_reference(resource);
+				assert(image_resource->label.size != 0);
+				assert(image_resource->slot.id != INVALID_HANDLE);
+				material.image = image_resource->label;
 			}
 		}
 		material.double_sided = gltf_material->double_sided;
 
-		struct material_resource *material_ptr = sm___resource_mock_push_material(&material);
-		struct resource resource = resource_make(material_name, RESOURCE_MATERIAL, material_ptr);
-		resource_push(&resource);
+		material_resource handle = resource_material_make(&material);
 	}
 }
 
 static void
 sm__gltf_load_skinned_mesh(
-    mesh_resource *mesh, cgltf_attribute *attribute, cgltf_skin *skin, cgltf_node *nodes, u32 node_count)
+    struct resource_mesh_desc *mesh, cgltf_attribute *attribute, cgltf_skin *skin, cgltf_node *nodes, u32 node_count)
 {
 	cgltf_attribute_type attr_type = attribute->type;
 	cgltf_accessor *accessor = attribute->data;
@@ -411,9 +409,8 @@ sm__gltf_load_meshes(cgltf_data *data)
 		assert(num_primi == 1); // TODO: handle more than one mesh per node
 		for (u32 j = 0; j < num_primi; ++j)
 		{
-			mesh_resource mesh = {0};
-
 			str8 mesh_name = str8_from_cstr(Garena, gltf_mesh->name);
+			struct resource_mesh_desc mesh = {.label = mesh_name};
 
 			cgltf_primitive *primitive = &data->meshes[i].primitives[j];
 			u32 ac = primitive->attributes_count;
@@ -453,9 +450,7 @@ sm__gltf_load_meshes(cgltf_data *data)
 			mesh.flags |= MESH_FLAG_DIRTY | MESH_FLAG_RENDERABLE;
 			log_trace(str8_from("MESH: {s}, FLAGS: {u3d}"), mesh_name, mesh.flags);
 
-			struct mesh_resource *mesh_ptr = sm___resource_mock_push_mesh(&mesh);
-			struct resource resource = resource_make(mesh_name, RESOURCE_MESH, mesh_ptr);
-			resource_push(&resource);
+			struct resource_handle handle = resource_mesh_make(&mesh);
 		}
 	}
 }
@@ -471,10 +466,11 @@ sm__gltf_count_chidren_nodes(cgltf_node *node)
 };
 
 static void
-sm__gltf_load_chidren_nodes(cgltf_data *data, struct scene_resource *scene, i32 parent_index, cgltf_node *gltf_node)
+sm__gltf_load_chidren_nodes(
+    cgltf_data *data, struct resource_scene_desc *scene, i32 parent_index, cgltf_node *gltf_node)
 {
-	array_push(Garena, scene->nodes, (struct scene_node){0});
-	struct scene_node *node = array_last_item(scene->nodes);
+	array_push(Garena, scene->nodes, (struct sm__resource_scene_node){0});
+	struct sm__resource_scene_node *node = array_last_item(scene->nodes);
 	u32 child_index = array_len(scene->nodes) - 1;
 
 	node->name = str8_from_cstr(Garena, gltf_node->name);
@@ -494,7 +490,7 @@ sm__gltf_load_chidren_nodes(cgltf_data *data, struct scene_resource *scene, i32 
 	{
 		str8 mesh_name = str8_from_cstr(Garena, gltf_node->mesh->name);
 
-		struct resource *resource = resource_get_by_name(mesh_name);
+		struct resource *resource = resource_get_by_label(mesh_name);
 		assert(resource && resource->type == RESOURCE_MESH);
 
 		node->mesh = mesh_name;
@@ -504,7 +500,7 @@ sm__gltf_load_chidren_nodes(cgltf_data *data, struct scene_resource *scene, i32 
 			cgltf_material *target = gltf_node->mesh->primitives->material;
 			str8 matererial_name = str8_from_cstr(Garena, target->name);
 
-			struct resource *material_resource = resource_get_by_name(matererial_name);
+			struct resource *material_resource = resource_get_by_label(matererial_name);
 			assert(material_resource && material_resource->type == RESOURCE_MATERIAL);
 			node->material = matererial_name;
 		}
@@ -517,7 +513,7 @@ sm__gltf_load_chidren_nodes(cgltf_data *data, struct scene_resource *scene, i32 
 	if (gltf_node->skin)
 	{
 		str8 armature_name = str8_from_cstr(Garena, gltf_node->skin->name);
-		struct resource *resource = resource_get_by_name(armature_name);
+		struct resource *resource = resource_get_by_label(armature_name);
 
 		assert(resource && resource->type == RESOURCE_ARMATURE);
 		node->armature = armature_name;
@@ -548,14 +544,14 @@ sm__gltf_count_chidren_nodes_constraint(cgltf_node *node, cgltf_data *data, arra
 
 static void
 sm__gltf_load_chidren_nodes_constraint(
-    struct scene_resource *scene, i32 parent_index, cgltf_node *gltf_node, cgltf_data *data, array(b8) ignore)
+    struct resource_scene_desc *scene, i32 parent_index, cgltf_node *gltf_node, cgltf_data *data, array(b8) ignore)
 {
 	i32 idx = sm__gltf_get_node_index(gltf_node, data->nodes, data->nodes_count);
 	assert(idx != -1);
 	if (!ignore[idx])
 	{
-		array_push(Garena, scene->nodes, (struct scene_node){0});
-		struct scene_node *node = array_last_item(scene->nodes);
+		array_push(Garena, scene->nodes, (struct sm__resource_scene_node){0});
+		struct sm__resource_scene_node *node = array_last_item(scene->nodes);
 
 		node->name = str8_from_cstr(Garena, gltf_node->name);
 		node->parent_index = parent_index;
@@ -574,7 +570,7 @@ sm__gltf_load_chidren_nodes_constraint(
 		{
 			str8 mesh_name = str8_from_cstr(Garena, gltf_node->mesh->name);
 
-			struct resource *resource = resource_get_by_name(mesh_name);
+			struct resource *resource = resource_get_by_label(mesh_name);
 			assert(resource && resource->type == RESOURCE_MESH);
 
 			node->mesh = mesh_name;
@@ -584,7 +580,7 @@ sm__gltf_load_chidren_nodes_constraint(
 				cgltf_material *target = gltf_node->mesh->primitives->material;
 				str8 matererial_name = str8_from_cstr(Garena, target->name);
 
-				struct resource *material_resource = resource_get_by_name(matererial_name);
+				struct resource *material_resource = resource_get_by_label(matererial_name);
 				assert(material_resource && material_resource->type == RESOURCE_MATERIAL);
 				node->material = matererial_name;
 			}
@@ -596,7 +592,7 @@ sm__gltf_load_chidren_nodes_constraint(
 		if (gltf_node->skin)
 		{
 			str8 armature_name = str8_from_cstr(Garena, gltf_node->skin->name);
-			struct resource *resource = resource_get_by_name(armature_name);
+			struct resource *resource = resource_get_by_label(armature_name);
 
 			assert(resource && resource->type == RESOURCE_ARMATURE);
 			node->armature = armature_name;
@@ -620,8 +616,8 @@ sm__gltf_load_scenes(cgltf_data *data)
 	{
 		cgltf_scene *gltf_scene = &data->scenes[i];
 
-		struct scene_resource scene = {0};
 		str8 scene_name = str8_from_cstr(Garena, gltf_scene->name);
+		struct resource_scene_desc scene = {.label = scene_name};
 
 		if (data->skins_count == 0)
 		{
@@ -657,11 +653,6 @@ sm__gltf_load_scenes(cgltf_data *data)
 				ignore[node_index] = true;
 			}
 
-			for (u32 i = 0; i < array_len(ignore); ++i)
-			{
-				str8_printf(Garena, str8_from("{u3d}: {b}\n"), i, ignore[i]);
-			}
-
 			u32 nodes_count = 0;
 			for (u32 j = 0; j < gltf_scene->nodes_count; ++j)
 			{
@@ -679,14 +670,12 @@ sm__gltf_load_scenes(cgltf_data *data)
 			array_release(Garena, ignore);
 		}
 
-		struct scene_resource *scene_ptr = sm___resource_mock_push_scene(&scene);
-		struct resource resource = resource_make(scene_name, RESOURCE_SCENE, scene_ptr);
-		resource_push(&resource);
+		scene_resource handle = resource_scene_make(&scene);
 	}
 }
 
 static void
-sm__gltf_update_armature_inverse_bind_pose(struct armature_resource *armature)
+sm__gltf_update_armature_inverse_bind_pose(struct resource_armature_desc *armature)
 {
 	assert(armature != 0);
 
@@ -787,12 +776,10 @@ sm__gltf_load_armatures(cgltf_data *data)
 
 	str8 armature_name = str8_from_cstr(Garena, gltf_skin->name);
 
-	struct armature_resource armature = {.rest = rest, .bind = bind};
+	struct resource_armature_desc armature = {.label = armature_name, .rest = rest, .bind = bind};
 	sm__gltf_update_armature_inverse_bind_pose(&armature);
 
-	struct armature_resource *armature_ptr = sm___resource_mock_push_armature(&armature);
-	struct resource resource = resource_make(armature_name, RESOURCE_ARMATURE, armature_ptr);
-	resource_push(&resource);
+	armature_resource handle = resource_armature_make(&armature);
 }
 
 static void
@@ -923,6 +910,75 @@ sm__gltf_load_track_from_channel(struct track *result, u32 stride, const cgltf_a
 	array_release(Garena, val);
 }
 
+// clip_get_transform_track_from_joint is meant to retrieve the
+// transform_track_t object for a specific joint in the clip. This function is
+// mainly used by whatever code loads the animation clip from a file. The
+// function performs a linear search through all of the tracks to see whether
+// any of them targets the specified joint. If a qualifying track is found, a
+// reference to it is returned. If no qualifying track is found, a new one is
+// created and returned:
+// similar [] operator
+static struct transform_track *
+sm__gltf_clip_get_transform_track_from_joint(struct arena *arena, struct resource_clip_desc *clip, u32 joint)
+{
+	sm__assert(clip);
+
+	for (u32 i = 0; i < array_len(clip->tracks); ++i)
+	{
+		if (clip->tracks[i].id == joint) { return (&clip->tracks[i]); }
+	}
+
+	struct transform_track tranform_track = {
+	    .id = joint,
+	    .scale = (struct track){.track_type = TRACK_TYPE_V3},
+	    .position = (struct track){.track_type = TRACK_TYPE_V3},
+	    .rotation = (struct track){.track_type = TRACK_TYPE_V4},
+	};
+
+	array_push(arena, clip->tracks, tranform_track);
+
+	return (&clip->tracks[array_len(clip->tracks) - 1]);
+}
+
+// The RecalculateDuration function sets mStartTime and mEndTime to default
+// values of 0. Next, these functions loop through every TransformTrack object
+// in the animation clip. If the track is valid, the start and end times of the
+// track are retrieved. The smallest start time and the largest end time are
+// stored. The start time of a clip might not be 0; it's possible to have a clip
+// that starts at an arbitrary point in time.
+static void
+sm__gltf_clip_recalculate_duration(struct resource_clip_desc *clip)
+{
+	sm__assert(clip);
+
+	clip->start_time = 0.0f;
+	clip->end_time = 0.0f;
+
+	b8 start_set = false;
+	b8 end_set = false;
+
+	u32 track_size = array_len(clip->tracks);
+	for (u32 i = 0; i < track_size; ++i)
+	{
+		if (!transform_track_is_valid(&clip->tracks[i])) continue;
+
+		f32 start_time = transform_track_get_start_time(&clip->tracks[i]);
+		f32 end_time = transform_track_get_end_time(&clip->tracks[i]);
+
+		if (start_time < clip->start_time || !start_set)
+		{
+			clip->start_time = start_time;
+			start_set = true;
+		}
+
+		if (end_time > clip->end_time || !end_set)
+		{
+			clip->end_time = end_time;
+			end_set = true;
+		}
+	}
+}
+
 static void
 sm__gltf_load_anim_clips(cgltf_data *data)
 {
@@ -933,10 +989,9 @@ sm__gltf_load_anim_clips(cgltf_data *data)
 	{
 		u32 num_channels = data->animations[i].channels_count;
 
-		struct clip_resource clip = {0};
-		clip.looping = true;
-
 		str8 clip_name = str8_from_cstr(Garena, data->animations[i].name);
+		struct resource_clip_desc clip = {.label = clip_name};
+		clip.looping = true;
 
 		for (u32 j = 0; j < num_channels; ++j)
 		{
@@ -946,40 +1001,39 @@ sm__gltf_load_anim_clips(cgltf_data *data)
 
 			if (channel->target_path == cgltf_animation_path_type_translation)
 			{
-				struct transform_track *track =
-				    clip_get_transform_track_from_joint(Garena, &clip, node_id);
+				struct transform_track *track = 0;
+				track = sm__gltf_clip_get_transform_track_from_joint(Garena, &clip, node_id);
 				sm__gltf_load_track_from_channel(&track->position, 3, channel);
 			}
 			else if (channel->target_path == cgltf_animation_path_type_scale)
 			{
-				struct transform_track *track =
-				    clip_get_transform_track_from_joint(Garena, &clip, node_id);
+				struct transform_track *track = 0;
+				track = sm__gltf_clip_get_transform_track_from_joint(Garena, &clip, node_id);
 				sm__gltf_load_track_from_channel(&track->scale, 3, channel);
 			}
 			else if (channel->target_path == cgltf_animation_path_type_rotation)
 			{
-				struct transform_track *track =
-				    clip_get_transform_track_from_joint(Garena, &clip, node_id);
+				struct transform_track *track = 0;
+				track = sm__gltf_clip_get_transform_track_from_joint(Garena, &clip, node_id);
 				sm__gltf_load_track_from_channel(&track->rotation, 4, channel);
 			}
 		}
 
-		clip_recalculate_duration(&clip);
+		sm__gltf_clip_recalculate_duration(&clip);
 
 		for (u32 j = 0; j < array_len(clip.tracks); ++j)
 		{
 			u32 joint = clip.tracks[j].id;
 
-			struct transform_track *ttrack = clip_get_transform_track_from_joint(Garena, &clip, joint);
+			struct transform_track *ttrack = 0;
+			ttrack = sm__gltf_clip_get_transform_track_from_joint(Garena, &clip, joint);
 
 			track_index_look_up_table(Garena, &ttrack->position);
 			track_index_look_up_table(Garena, &ttrack->rotation);
 			track_index_look_up_table(Garena, &ttrack->scale);
 		}
 
-		struct clip_resource *clip_ptr = sm___resource_mock_push_clip(&clip);
-		struct resource resource = resource_make(clip_name, RESOURCE_CLIP, clip_ptr);
-		resource_push(&resource);
+		clip_resource handle = resource_clip_make(&clip);
 	}
 }
 
@@ -1036,7 +1090,7 @@ sm__load_image(str8 uri, str8 image_name)
 {
 	log_trace(str8_from(" * loading image"));
 
-	struct image_resource image = {0};
+	struct resource_image_desc image = {.label = image_name};
 
 	struct fs_file file = fs_file_open(uri, true);
 	if (!file.ok)
@@ -1073,20 +1127,24 @@ sm__load_image(str8 uri, str8 image_name)
 	else if (channels == 3) { image.pixel_format = IMAGE_PIXELFORMAT_UNCOMPRESSED_R8G8B8; }
 	else { image.pixel_format = IMAGE_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8; }
 
-	struct image_resource *image_ptr = sm___resource_mock_push_image(&image);
-	struct resource resource = resource_make(image_name, RESOURCE_IMAGE, image_ptr);
-	resource_push(&resource);
+	image_resource handle = resource_image_make(&image);
 }
 
-b8
+b32
 print_resource_cb(str8 name, struct resource *resource, void *user_data)
 {
-	resource_print(resource);
+	resource_trace(resource);
 
 	return (true);
 }
 
-b8
+b32
+read_resource_cb(str8 name, struct resource *resource, void *user_data)
+{
+	return sm___resource_mock_read(resource);
+}
+
+b32
 dump_resource_cb(str8 name, struct resource *resource, void *user_data)
 {
 	resource_write(resource);
@@ -1171,7 +1229,7 @@ main(i32 argc, i8 *argv[])
 
 			str8 image_name = str8_dup(Garena, (str8){.idata = buf, .size = end_byte - beg_byte});
 
-			stbi_set_flip_vertically_on_load(false);
+			stbi_set_flip_vertically_on_load(true);
 			sm__load_image(file, image_name);
 		}
 		else
@@ -1186,12 +1244,18 @@ main(i32 argc, i8 *argv[])
 	resource_for_each(dump_resource_cb, 0);
 
 	sm___resource_mock_teardown();
+
+#if 1
 	//
-	// sm___resource_mock_init(base_memory, argv, path);
-	// Garena = resource_get_arena();
+	sm___resource_mock_init(argv, path);
+	Garena = resource_get_arena();
 	//
-	// sm___resource_mock_read();
-	// resource_for_each(print_resource_cb, 0);
+	str8 dirs[] = {str8_from("dump")};
+	sm__resource_map_dirs(dirs, ARRAY_SIZE(dirs));
+	resource_for_each(read_resource_cb, 0);
+	resource_for_each(print_resource_cb, 0);
+	sm___resource_mock_teardown();
+#endif
 
 	base_memory_teardown();
 

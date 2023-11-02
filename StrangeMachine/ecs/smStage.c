@@ -55,48 +55,28 @@ stage_teardown(void)
 }
 
 void
-stage_do(struct ctx *ctx)
+stage_on_attach(struct ctx *ctx)
+{
+	scene_on_attach(&SC.current->arena, &SC.current->scene, ctx);
+}
+
+void
+stage_on_detach(struct ctx *ctx)
+{
+	scene_on_detach(&SC.current->arena, &SC.current->scene, ctx);
+}
+
+void
+stage_on_update(struct ctx *ctx)
 {
 	scene_system_run(&SC.current->arena, &SC.current->scene, ctx);
+	scene_on_update(&SC.current->arena, &SC.current->scene, ctx);
 }
 
 void
-stage_set_main_camera(entity_t camera_entity)
+stage_on_draw(struct ctx *ctx)
 {
-	scene_set_main_camera(&SC.current->scene, camera_entity);
-}
-
-camera_component *
-stage_get_main_camera(void)
-{
-	camera_component *result;
-	entity_t cam = scene_get_main_camera(&SC.current->scene);
-	result = scene_component_get_data(&SC.current->scene, cam, CAMERA);
-	return (result);
-}
-
-entity_t
-stage_get_main_camera_entity(void)
-{
-	entity_t result;
-	result = scene_get_main_camera(&SC.current->scene);
-	return (result);
-}
-
-void
-stage_set_gravity_force(v3 gravity_force)
-{
-	scene_set_gravity_force(&SC.current->scene, gravity_force);
-}
-
-v3
-stage_get_gravity_force(void)
-{
-	v3 result;
-
-	result = SC.current->scene.gravity_force;
-
-	return (result);
+	scene_on_draw(&SC.current->arena, &SC.current->scene, ctx);
 }
 
 static void
@@ -108,9 +88,10 @@ sm__stage_construct(struct scene_object *scene_obj)
 	scene_make(&scene_obj->arena, &scene_obj->scene);
 }
 
-void
+struct scene *
 stage_scene_new(str8 name)
 {
+	struct scene *result = 0;
 	for (struct scene_object *n = SC.scenes_active.next; n != &SC.scenes_active; n = n->next)
 	{
 		if (str8_eq(name, n->name))
@@ -127,11 +108,10 @@ stage_scene_new(str8 name)
 		n->name = name;
 		SC.current = n;
 		sm__stage_construct(SC.current);
-
-		return;
+		result = &SC.current->scene;
 	}
 
-	sm__unreachable();
+	return (result);
 }
 
 void
@@ -156,10 +136,10 @@ stage_is_current_scene(str8 name)
 	return str8_eq(name, SC.current->name);
 }
 
-entity_t
+void
 stage_scene_asset_load(str8 name)
 {
-	return scene_load(&SC.current->arena, &SC.current->scene, name);
+	scene_load(&SC.current->arena, &SC.current->scene, name);
 }
 
 struct arena *

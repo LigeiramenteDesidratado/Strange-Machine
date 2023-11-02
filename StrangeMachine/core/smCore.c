@@ -225,6 +225,8 @@ core_init(struct core_init *core_init)
 		str8_println(str8_from("error initializing resource"));
 		return (false);
 	}
+	str8 dirs[] = {str8_from("shaders"), str8_from("dump")};
+	sm__resource_map_dirs(dirs, ARRAY_SIZE(dirs));
 	CC.modules |= CORE_RESOURCE;
 
 	if (!audio_manager_init())
