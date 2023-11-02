@@ -2,7 +2,6 @@
 
 #include "core/smCore.h"
 #include "core/smResource.h"
-#include "ecs/smECS.h"
 #include "renderer/smRenderer.h"
 
 #include "core/smLog.h"
@@ -27,116 +26,131 @@
 #	define RESET_DEPTH_VALUE -1.0f
 #endif
 
-struct vertex_buffer
+struct pools
 {
-	u32 element_count; // Number of elements in the buffer (QUADS)
-	v3 *positions;
-	v2 *uvs;
-	color *colors;
-	u32 *indices;
+	struct handle_pool buffer_pool;
+	struct renderer_buffer *buffers;
 
-	u32 vao;     // openGL vertex array object
-	u32 vbos[3]; // openGL vertex buffer objects
-	u32 ebo;     // openGL vertex buffer object
+	struct handle_pool texture_pool;
+	struct renderer_texture *textures;
+
+	struct handle_pool sampler_pool;
+	struct renderer_sampler *samplers;
+
+	struct handle_pool shader_pool;
+	struct renderer_shader *shaders;
+
+	struct handle_pool pipeline_pool;
+	struct renderer_pipeline *pipelines;
+
+	struct handle_pool pass_pool;
+	struct renderer_pass *passes;
 };
 
-struct draw_call
+static void
+sm__renderer_pools_make(struct arena *arena, struct pools *pools)
 {
-	u32 mode;	      // Drawing mode: LINES, TRIANGLES, QUADS...
-	u32 vertex_counter;   // Number of vertex of the draw
-	u32 vertex_alignment; // Number of vertex required for index alignment
-};
+	sm__assert(pools);
+	sm__assert(arena);
 
-struct batch
+#define RENDERER_INITIAL_CAPACITY_BUFFERS   64
+#define RENDERER_INITIAL_CAPACITY_TEXTURES  64
+#define RENDERER_INITIAL_CAPACITY_SAMPLERS  64
+#define RENDERER_INITIAL_CAPACITY_SHADERS   64
+#define RENDERER_INITIAL_CAPACITY_PIPELINES 64
+#define RENDERER_INITIAL_CAPACITY_PASSES    64
+
+	handle_pool_make(arena, &pools->buffer_pool, RENDERER_INITIAL_CAPACITY_BUFFERS);
+	pools->buffers = arena_reserve(arena, sizeof(struct renderer_buffer) * RENDERER_INITIAL_CAPACITY_BUFFERS);
+
+	handle_pool_make(arena, &pools->texture_pool, RENDERER_INITIAL_CAPACITY_TEXTURES);
+	pools->textures = arena_reserve(arena, sizeof(struct renderer_texture) * RENDERER_INITIAL_CAPACITY_TEXTURES);
+
+	handle_pool_make(arena, &pools->sampler_pool, RENDERER_INITIAL_CAPACITY_SAMPLERS);
+	pools->samplers = arena_reserve(arena, sizeof(struct renderer_sampler) * RENDERER_INITIAL_CAPACITY_SAMPLERS);
+
+	handle_pool_make(arena, &pools->shader_pool, RENDERER_INITIAL_CAPACITY_SHADERS);
+	pools->shaders = arena_reserve(arena, sizeof(struct renderer_shader) * RENDERER_INITIAL_CAPACITY_SHADERS);
+
+	handle_pool_make(arena, &pools->pipeline_pool, RENDERER_INITIAL_CAPACITY_PIPELINES);
+	pools->pipelines = arena_reserve(arena, sizeof(struct renderer_pipeline) * RENDERER_INITIAL_CAPACITY_PIPELINES);
+
+	handle_pool_make(arena, &pools->pass_pool, RENDERER_INITIAL_CAPACITY_PASSES);
+	pools->passes = arena_reserve(arena, sizeof(struct renderer_pass) * RENDERER_INITIAL_CAPACITY_PASSES);
+
+#undef RENDERER_INITIAL_CAPACITY_BUFFERS
+#undef RENDERER_INITIAL_CAPACITY_TEXTURES
+#undef RENDERER_INITIAL_CAPACITY_SAMPLER
+#undef RENDERER_INITIAL_CAPACITY_SHADERS
+#undef RENDERER_INITIAL_CAPACITY_PIPELINE
+#undef RENDERER_INITIAL_CAPACITY_PASSES
+}
+
+static void
+sm__renderer_pools_release(struct arena *arena, struct pools *pools)
 {
-	struct vertex_buffer vertex_buffer;
-#define MAX_BATCH_DRAW_CALLS 256
-	u32 draws_len;
-	struct draw_call *draws;	// Draw calls array, depends on textureId
-	f32 current_clip_control_depth; // Current depth value for next draw
-};
+	arena_free(arena, pools->passes);
+	handle_pool_release(arena, &pools->pass_pool);
 
-struct framebuffer
-{
-	struct
-	{
-		REF(struct shader_resource) shader;
-		u32 vao;
-		u32 vbo;
-	} screen;
+	arena_free(arena, pools->pipelines);
+	handle_pool_release(arena, &pools->pipeline_pool);
 
-	u32 fbo;
-	u32 width, height;
+	arena_free(arena, pools->shaders);
+	handle_pool_release(arena, &pools->shader_pool);
 
-	u32 color_rt;
-	u32 depth_rt;
-};
+	arena_free(arena, pools->samplers);
+	handle_pool_release(arena, &pools->sampler_pool);
 
-static struct batch sm__batch_make(void);
-static void sm__batch_release(struct batch *batch);
+	arena_free(arena, pools->textures);
+	handle_pool_release(arena, &pools->texture_pool);
+
+	arena_free(arena, pools->buffers);
+	handle_pool_release(arena, &pools->buffer_pool);
+}
 
 struct renderer
 {
 	// batch being used for rendering
-	struct batch batch;
-	struct dyn_buf mem_renderer;
 	struct arena arena;
-	struct framebuffer framebuffer;
+
+	struct pools pools;
+
+	u32 width, height;
 
 	struct
 	{
-		u32 vertex_counter; // Number of vertex in the buffer
-		v2 v_uv;	    // UV coordinates
-		color v_color;
+		shader_handle shader;
 
-		enum matrix_mode
+		pass_handle pass;
+		u32 pass_width;
+		u32 pass_height;
+		b32 in_pass;
+
+		enum store_action store_action_color[MAX_COLOR_ATTACHMENTS];
+		enum store_action store_action_depth;
+
+		pipeline_handle pipeline;
+
+		struct
 		{
-			MATRIX_MODE_PROJECTION = 0x00000000,
-			MATRIX_MODE_MODEL_VIEW = 0x00000001,
-		} matrix_mode;
+			u32 default_vao;
+			u32 default_vbo;
+			u32 default_fbo;
 
-		// Flag for transform
-		b8 transform_required;
+			GLuint bind_vertex_buffer, store_bind_vertex_buffer;
+			GLuint bind_index_buffer, store_bind_index_buffer;
 
-		// Transform matrix
-		m4 transform;
-
-		// Pointer to current matrix
-		m4 *current_matrix;
-
-		m4 modelview;
-		m4 projection;
-
-		u32 stack_counter;
-		m4 stack[32]; // Matrix stack for push/pop operations
-
-		REF(struct shader_resource) default_shader;
-		REF(struct resource) default_texture_ref;
-
-#define MAX_TEXTUREUNIT 8
-		array(REF(struct resource)) textures;
-		struct resource *current_textures[MAX_TEXTUREUNIT], *selected_textures[MAX_TEXTUREUNIT];
-
-		array(REF(struct shader_resource)) shaders;
-		REF(struct shader_resource) current_shader, *selected_shader;
-
-		enum
-		{
-			DIRTY_BLEND = BIT(0),
-			DIRTY_DEPTH = BIT(1),
-			DIRTY_RASTERIZER = BIT(2),
-
-			// enforce 32-bit size enum
-			SM__DIRTY__ENFORCE_ENUM_SIZE = 0x7fffffff
-		} dirty;
-		struct blend_state current_blend, selected_blend;
-		struct depth_state current_depth, selected_depth;
-		struct rasterizer_state current_rasterizer, selected_rasterizer;
-
-	} state;
-
-	color clear_color;
+			struct blend_state blend;
+			struct depth_state depth;
+			struct rasterizer_state rasterizer;
+			struct texture_slot textures[MAX_TEXTURE_SLOTS];
+			struct buffer_slot buffers[MAX_BUFFER_SLOTS];
+			buffer_handle index_buffer;
+		} gl;
+	} current;
 };
+
+static struct renderer RC;
 
 static str8
 gl__error_to_string(GLenum error)
@@ -152,23 +166,24 @@ gl__error_to_string(GLenum error)
 	}
 }
 
-static b8
-gl__log_call(void)
+static b32
+gl__log_call(str8 file, u32 line)
 {
 	GLenum err;
 	while ((err = glGetError()))
 	{
-		log_error(str8_from("[GL Error] ({u3d}): {s}"), err, gl__error_to_string(err));
-		return false;
+		log__log(LOG_ERRO, file, line, str8_from("[GL Error] ({u3d}): {s}"), err, gl__error_to_string(err));
+		return (0);
 	}
-	return true;
+	return (1);
 }
 
-#define glCall(CALL)                                \
-	do {                                        \
-		gl__log_call();                     \
-		CALL;                               \
-		sm__assertf(gl__log_call(), #CALL); \
+#define glCall(CALL)                                                                       \
+	do                                                                                 \
+	{                                                                                  \
+		gl__log_call(str8_from(sm__file_name), sm__file_line);                     \
+		CALL;                                                                      \
+		sm__assertf(gl__log_call(str8_from(sm__file_name), sm__file_line), #CALL); \
 	} while (0)
 
 static str8
@@ -299,8 +314,129 @@ static u32 gl__ctable_type_size[] = {
     [SHADER_TYPE_SAMPLER_2D_SHADOW] = 0, // TODO
 };
 
+static str8 sm__ctable_shader_type_str8[] = {
+    [SHADER_TYPE_B8] = str8_from("SHADER_TYPE_B8"),
+    [SHADER_TYPE_I32] = str8_from("SHADER_TYPE_I32"),
+    [SHADER_TYPE_F32] = str8_from("SHADER_TYPE_F32"),
+
+    [SHADER_TYPE_V2] = str8_from("SHADER_TYPE_V2"),
+    [SHADER_TYPE_V3] = str8_from("SHADER_TYPE_V3"),
+    [SHADER_TYPE_V4] = str8_from("SHADER_TYPE_V4"),
+
+    [SHADER_TYPE_BV2] = str8_from("SHADER_TYPE_BV2"),
+    [SHADER_TYPE_BV3] = str8_from("SHADER_TYPE_BV3"),
+    [SHADER_TYPE_BV4] = str8_from("SHADER_TYPE_BV4"),
+
+    [SHADER_TYPE_IV2] = str8_from("SHADER_TYPE_IV2"),
+    [SHADER_TYPE_IV3] = str8_from("SHADER_TYPE_IV3"),
+    [SHADER_TYPE_IV4] = str8_from("SHADER_TYPE_IV4"),
+
+    [SHADER_TYPE_M2] = str8_from("SHADER_TYPE_M2"),
+    [SHADER_TYPE_M2X3] = str8_from("SHADER_TYPE_M2X3"),
+    [SHADER_TYPE_M2X4] = str8_from("SHADER_TYPE_M2X4"),
+
+    [SHADER_TYPE_M3X2] = str8_from("SHADER_TYPE_M3X2"),
+    [SHADER_TYPE_M3] = str8_from("SHADER_TYPE_M3"),
+    [SHADER_TYPE_M3X4] = str8_from("SHADER_TYPE_M3X4"),
+
+    [SHADER_TYPE_M4X2] = str8_from("SHADER_TYPE_M4X2"),
+    [SHADER_TYPE_M4X3] = str8_from("SHADER_TYPE_M4X3"),
+    [SHADER_TYPE_M4] = str8_from("SHADER_TYPE_M4"),
+
+    [SHADER_TYPE_SAMPLER_1D] = str8_from("SHADER_TYPE_SAMPLER_1D"),
+    [SHADER_TYPE_SAMPLER_2D] = str8_from("SHADER_TYPE_SAMPLER_2D"),
+    [SHADER_TYPE_SAMPLER_3D] = str8_from("SHADER_TYPE_SAMPLER_3D"),
+
+    [SHADER_TYPE_SAMPLER_CUBE] = str8_from("SHADER_TYPE_SAMPLER_CUBE"),
+    [SHADER_TYPE_SAMPLER_1D_SHADOW] = str8_from("SHADER_TYPE_SAMPLER_1D_SHADOW"),
+    [SHADER_TYPE_SAMPLER_2D_SHADOW] = str8_from("SHADER_TYPE_SAMPLER_2D_SHADOW"),
+};
+
+static GLenum
+gl__ctable_vertex_format_type(enum vertex_format fmt)
+{
+	switch (fmt)
+	{
+	case VERTEX_FORMAT_FLOAT:
+	case VERTEX_FORMAT_FLOAT2:
+	case VERTEX_FORMAT_FLOAT3:
+	case VERTEX_FORMAT_FLOAT4: return GL_FLOAT;
+	case VERTEX_FORMAT_BYTE4:
+	case VERTEX_FORMAT_BYTE4N: return GL_BYTE;
+	case VERTEX_FORMAT_UBYTE4:
+	case VERTEX_FORMAT_UBYTE4N: return GL_UNSIGNED_BYTE;
+	case VERTEX_FORMAT_SHORT2:
+	case VERTEX_FORMAT_SHORT2N:
+	case VERTEX_FORMAT_SHORT4:
+	case VERTEX_FORMAT_SHORT4N: return GL_SHORT;
+	case VERTEX_FORMAT_USHORT2N:
+	case VERTEX_FORMAT_USHORT4N: return GL_UNSIGNED_SHORT;
+	case VERTEX_FORMAT_UINT10_N2: return GL_UNSIGNED_INT_2_10_10_10_REV;
+	// case VERTEX_FORMAT_HALF2:
+	// case VERTEX_FORMAT_HALF4: return GL_HALF_FLOAT;
+	default: sm__unreachable(); return 0;
+	}
+}
+
+static GLboolean
+gl__vertex_format_normalized(enum vertex_format fmt)
+{
+	switch (fmt)
+	{
+	case VERTEX_FORMAT_BYTE4N:
+	case VERTEX_FORMAT_UBYTE4N:
+	case VERTEX_FORMAT_SHORT2N:
+	case VERTEX_FORMAT_USHORT2N:
+	case VERTEX_FORMAT_SHORT4N:
+	case VERTEX_FORMAT_USHORT4N:
+	case VERTEX_FORMAT_UINT10_N2: return GL_TRUE;
+	default: return GL_FALSE;
+	}
+}
+
+static u32 gl__ctable_vertex_format_to_byte_size[VERTEX_FORMAT_MAX] = {
+    [VERTEX_FORMAT_INVALID] = 0,
+    [VERTEX_FORMAT_FLOAT] = 4,
+    [VERTEX_FORMAT_FLOAT2] = 8,
+    [VERTEX_FORMAT_FLOAT3] = 12,
+    [VERTEX_FORMAT_FLOAT4] = 16,
+    [VERTEX_FORMAT_BYTE4] = 4,
+    [VERTEX_FORMAT_BYTE4N] = 4,
+    [VERTEX_FORMAT_UBYTE4] = 4,
+    [VERTEX_FORMAT_UBYTE4N] = 4,
+    [VERTEX_FORMAT_SHORT2] = 4,
+    [VERTEX_FORMAT_SHORT2N] = 4,
+    [VERTEX_FORMAT_USHORT2N] = 4,
+    [VERTEX_FORMAT_SHORT4] = 8,
+    [VERTEX_FORMAT_SHORT4N] = 8,
+    [VERTEX_FORMAT_USHORT4N] = 8,
+    [VERTEX_FORMAT_UINT10_N2] = 4,
+    [VERTEX_FORMAT_HALF2] = 4,
+    [VERTEX_FORMAT_HALF4] = 8,
+};
+
+GLint gl__ctable_vertex_format_components_count[VERTEX_FORMAT_MAX] = {
+    [VERTEX_FORMAT_FLOAT] = 1,
+    [VERTEX_FORMAT_FLOAT2] = 2,
+    [VERTEX_FORMAT_FLOAT3] = 3,
+    [VERTEX_FORMAT_FLOAT4] = 4,
+    [VERTEX_FORMAT_BYTE4] = 4,
+    [VERTEX_FORMAT_BYTE4N] = 4,
+    [VERTEX_FORMAT_UBYTE4] = 4,
+    [VERTEX_FORMAT_UBYTE4N] = 4,
+    [VERTEX_FORMAT_SHORT2] = 2,
+    [VERTEX_FORMAT_SHORT2N] = 2,
+    [VERTEX_FORMAT_USHORT2N] = 2,
+    [VERTEX_FORMAT_SHORT4] = 4,
+    [VERTEX_FORMAT_SHORT4N] = 4,
+    [VERTEX_FORMAT_USHORT4N] = 4,
+    [VERTEX_FORMAT_UINT10_N2] = 4,
+    [VERTEX_FORMAT_HALF2] = 2,
+    [VERTEX_FORMAT_HALF4] = 4,
+};
+
 static void
-gl__set_uniform(i32 location, u32 size, enum shader_type type, void *value)
+gl__renderer_set_uniform(i32 location, u32 size, enum shader_type type, void *value)
 {
 	switch (type)
 	{
@@ -346,7 +482,10 @@ static void
 gl__print_extensions(void)
 {
 	const u8 *extensions = glGetString(GL_EXTENSIONS);
-	if (!extensions) { printf("Error: Unable to get OpenGL extensions.\n"); }
+	if (!extensions)
+	{
+		printf("Error: Unable to get OpenGL extensions.\n");
+	}
 	else
 	{
 		printf("OpenGL Extensions:\n");
@@ -365,7 +504,7 @@ gl__print_extensions(void)
 }
 
 static GLuint
-gl__shader_compile_vert(const str8 vertex)
+gl__renderer_shader_compile_vert(const str8 vertex)
 {
 	GLuint result;
 	glCall(result = glCreateShader(GL_VERTEX_SHADER));
@@ -388,7 +527,7 @@ gl__shader_compile_vert(const str8 vertex)
 }
 
 static GLuint
-gl__shader_compile_frag(const str8 fragment)
+gl__renderer_shader_compile_frag(const str8 fragment)
 {
 	GLuint result;
 	glCall(result = glCreateShader(GL_FRAGMENT_SHADER));
@@ -409,213 +548,67 @@ gl__shader_compile_frag(const str8 fragment)
 	return (result);
 }
 
-static b8
-gl__shader_link(struct shader_resource *shader)
+static b32
+gl__renderer_shader_link(struct renderer_shader *shader)
 {
-	glCall(glAttachShader(shader->program, shader->vertex->id));
-	glCall(glAttachShader(shader->program, shader->fragment->id));
-	glCall(glLinkProgram(shader->program));
+	glCall(glAttachShader(shader->gl_shader_program_handle, shader->gl_vs_handle));
+	glCall(glAttachShader(shader->gl_shader_program_handle, shader->gl_fs_handle));
+	glCall(glLinkProgram(shader->gl_shader_program_handle));
 
 	GLint success = 0;
-	glCall(glGetProgramiv(shader->program, GL_LINK_STATUS, &success));
+	glCall(glGetProgramiv(shader->gl_shader_program_handle, GL_LINK_STATUS, &success));
 	if (!success)
 	{
 		i8 info_log[2 * 512];
-		glCall(glGetShaderInfoLog(shader->program, 2 * 512, NULL, info_log));
-		log_error(str8_from("shader linking failed.\n\t{s}"),
-		    (str8){.idata = info_log, .size = (u32)strlen(info_log)});
-		glCall(glDeleteShader(shader->vertex->id));
-		glCall(glDeleteShader(shader->fragment->id));
+		glCall(glGetShaderInfoLog(shader->gl_shader_program_handle, 2 * 512, NULL, info_log));
+		log_error(str8_from("shader linking failed.\n\t{s}"), str8_from_cstr_stack(info_log));
 
-		return (false);
+		return (0);
 	}
-	log_info(str8_from("[{s}] compiled and linked shaders successfully"), shader->name);
+	log_info(str8_from("[{s}] compiled and linked shaders successfully"), shader->label);
 
-	return (true);
+	return (1);
 }
 
 static void
-gl__shader_cache_actives(struct arena *arena, struct shader_resource *shader)
+gl__renderer_pipeline_set_blend_mode(enum blend_mode mode)
 {
-	GLint count = 0;
-
-	GLint size;  // size of the variable
-	GLenum type; // type of the variable (float, vec3 or mat4, etc)
-	GLint location;
-
-	const GLsizei bufSize = 64; // maximum name length
-	GLchar _name[bufSize];	    // variable name in GLSL
-	GLsizei length;		    // name length
-
-	glCall(glUseProgram(shader->program));
-
-	glCall(glGetProgramiv(shader->program, GL_ACTIVE_ATTRIBUTES, &count));
-	shader->attributes_count = count;
-	shader->attributes = arena_reserve(arena, count * sizeof(struct shader_attribute));
-
-	for (i32 i = 0; i < count; ++i)
-	{
-		glCall(glGetActiveAttrib(shader->program, i, bufSize, &length, &size, &type, _name));
-		glCall(location = glGetAttribLocation(shader->program, _name));
-		sm__assert(location != -1);
-
-		str8 name = (str8){.idata = _name, .size = length};
-
-		shader->attributes[i].name = str8_dup(arena, name);
-		shader->attributes[i].size = size;
-		shader->attributes[i].type = gl__to_shader_type(type);
-		shader->attributes[i].location = location;
-	}
-
-	glCall(glGetProgramiv(shader->program, GL_ACTIVE_UNIFORMS, &count));
-
-	u32 n_uniforms = 0, n_samplers = 0;
-	shader->uniforms = arena_reserve(arena, count * sizeof(struct shader_uniform));
-	shader->samplers = arena_reserve(arena, count * sizeof(struct shader_sampler));
-	// shader->uniforms_count = count;
-
-	for (i32 i = 0; i < count; ++i)
-	{
-		glCall(glGetActiveUniform(shader->program, i, bufSize, &length, &size, &type, _name));
-		glCall(location = glGetUniformLocation(shader->program, _name));
-		sm__assert(location != -1);
-
-		if (strncmp(_name, "gl_", 3) == 0) { continue; }
-
-		i8 *bracket = strchr(_name, '[');
-		b8 is_first = false;
-
-		if (bracket == 0 || (bracket[1] == '0' && bracket[2] == ']'))
-		{
-			if (bracket)
-			{
-				sm__assert(bracket[3] == '\0'); // array of structs not supported yet
-				*bracket = '\0';
-				length = (GLint)(bracket - _name);
-			}
-			is_first = true;
-		}
-
-		if (type >= GL_SAMPLER_1D && type <= GL_SAMPLER_2D_SHADOW)
-		{
-			glCall(glUniform1i(location, n_samplers));
-			shader->samplers[n_samplers].name = str8_from_cstr(arena, _name);
-			shader->samplers[n_samplers].type = gl__to_shader_type(type);
-			shader->samplers[n_samplers].location = n_samplers;
-			n_samplers++;
-		}
-		else
-		{
-			str8 name = (str8){.idata = _name, .size = length};
-			if (is_first)
-			{
-				shader->uniforms[n_uniforms].name = str8_dup(arena, name);
-				shader->uniforms[n_uniforms].size = size;
-				shader->uniforms[n_uniforms].type = gl__to_shader_type(type);
-				shader->uniforms[n_uniforms].location = location;
-				n_uniforms++;
-			}
-			else if (bracket != 0 && bracket[1] > '0')
-			{
-				*bracket = '\0';
-				for (i32 u = n_uniforms - 1; u >= 0; u--)
-				{
-					if (str8_eq(shader->uniforms[u].name, name))
-					{
-						i32 index = atoi(bracket + 1) + 1;
-						if ((u32)index > shader->uniforms[u].size)
-						{
-							shader->uniforms[u].size = index;
-						}
-					}
-				}
-			}
-		}
-	}
-
-	glCall(glUseProgram(0));
-
-	// shader->uniforms = arena_resize(arena, shader->uniforms, n_uniforms);
-	// shader->samplers = arena_resize(arena, shader->samplers, n_samplers);
-
-	shader->uniforms_count = n_uniforms;
-	shader->samplers_count = n_samplers;
-
-	for (u32 i = 0; i < n_uniforms; ++i)
-	{
-		struct shader_uniform *uni = shader->uniforms + i;
-
-		u32 array_size = uni->size * gl__ctable_type_size[uni->type];
-		shader->uniforms[i].data = arena_reserve(arena, array_size);
-		memset(uni->data, 0x0, array_size);
-		uni->dirty = false;
-	}
-
-	log_trace(str8_from("uniforms: {s}"), shader->name);
-	for (u32 i = 0; i < shader->uniforms_count; ++i)
-	{
-		struct shader_uniform *uni = shader->uniforms + i;
-		log_trace(str8_from("\tname: {s}, loc: {i3d}, size: {i3d}, type: {s}"), uni->name, uni->location,
-		    uni->size, gl__type_to_string(uni->type));
-	}
-
-	log_trace(str8_from("samplers: {s}"), shader->name);
-	for (u32 i = 0; i < shader->samplers_count; ++i)
-	{
-		struct shader_sampler *samp = shader->samplers + i;
-		log_trace(str8_from("\tname: {s}, loc: {i3d}, type: {s}"), samp->name, samp->location,
-		    gl__type_to_string(samp->type));
-	}
-
-	log_trace(str8_from("attributes: {s}"), shader->name);
-	for (u32 i = 0; i < shader->attributes_count; ++i)
-	{
-		struct shader_attribute *attr = shader->attributes + i;
-		log_trace(str8_from("\tname: {s}, loc: {i3d}, size: {i3d}, type: {s}"), attr->name, attr->location,
-		    attr->size, gl__type_to_string(attr->type));
-	}
-}
-
-static b8
-gl__set_blend_mode(enum blend_mode mode)
-{
-	b8 result = true;
 	switch (mode)
 	{
 	case BLEND_MODE_ALPHA:
 		{
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glBlendEquation(GL_FUNC_ADD);
+			glCall(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+			glCall(glBlendEquation(GL_FUNC_ADD));
 		}
 		break;
 	case BLEND_MODE_ADDITIVE:
 		{
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-			glBlendEquation(GL_FUNC_ADD);
+			glCall(glBlendFunc(GL_SRC_ALPHA, GL_ONE));
+			glCall(glBlendEquation(GL_FUNC_ADD));
 		}
 		break;
 	case BLEND_MODE_MULTIPLIED:
 		{
-			glBlendFunc(GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA);
-			glBlendEquation(GL_FUNC_ADD);
+			glCall(glBlendFunc(GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA));
+			glCall(glBlendEquation(GL_FUNC_ADD));
 		}
 		break;
 	case BLEND_MODE_ADD_COLORS:
 		{
-			glBlendFunc(GL_ONE, GL_ONE);
-			glBlendEquation(GL_FUNC_ADD);
+			glCall(glBlendFunc(GL_ONE, GL_ONE));
+			glCall(glBlendEquation(GL_FUNC_ADD));
 		}
 		break;
 	case BLEND_MODE_SUBTRACT_COLORS:
 		{
-			glBlendFunc(GL_ONE, GL_ONE);
-			glBlendEquation(GL_FUNC_SUBTRACT);
+			glCall(glBlendFunc(GL_ONE, GL_ONE));
+			glCall(glBlendEquation(GL_FUNC_SUBTRACT));
 		}
 		break;
 	case BLEND_MODE_ALPHA_PREMULTIPLY:
 		{
-			glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-			glBlendEquation(GL_FUNC_ADD);
+			glCall(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
+			glCall(glBlendEquation(GL_FUNC_ADD));
 		}
 		break;
 	case BLEND_MODE_CUSTOM:
@@ -629,8 +622,8 @@ gl__set_blend_mode(enum blend_mode mode)
 		break;
 	default:
 		{
-			log_warn(str8_from("[{u3d}] UNKOWN BLEND MODE"), mode);
-			result = false;
+			log_warn(str8_from("[{u3d}] UNKNOW BLEND MODE"), mode);
+			break;
 		};
 	}
 
@@ -647,11 +640,54 @@ gl__set_blend_mode(enum blend_mode mode)
 
 	log_trace(str8_from("[{s}] blend mode set"), ctable_blend_str8[mode]);
 #endif
-	return (result);
 }
 
+static str8 sm__ctable_blend_mode_str8[BLEND_MODE_MAX] = {
+    [BLEND_MODE_DEFAULT] = str8_from("BLEND_MODE_DEFAULT"),
+    [BLEND_MODE_ALPHA] = str8_from("BLEND_MODE_ALPHA"),
+    [BLEND_MODE_ADDITIVE] = str8_from("BLEND_MODE_ADDITIVE"),
+    [BLEND_MODE_MULTIPLIED] = str8_from("BLEND_MODE_MULTIPLIED"),
+    [BLEND_MODE_ADD_COLORS] = str8_from("BLEND_MODE_ADD_COLORS"),
+    [BLEND_MODE_SUBTRACT_COLORS] = str8_from("BLEND_MODE_SUBTRACT_COLORS"),
+    [BLEND_MODE_ALPHA_PREMULTIPLY] = str8_from("BLEND_MODE_ALPHA_PREMULTIPLY"),
+    [BLEND_MODE_CUSTOM] = str8_from("BLEND_MODE_CUSTOM"),
+};
+
+static str8 sm__ctable_depth_func_str8[DEPTH_FUNC_MAX] = {
+    [DEPTH_FUNC_DEFAULT] = str8_from("DEPTH_FUNC_DEFAULT"),
+    [DEPTH_FUNC_NEVER] = str8_from("DEPTH_FUNC_NEVER"),
+    [DEPTH_FUNC_LESS] = str8_from("DEPTH_FUNC_LESS"),
+    [DEPTH_FUNC_EQUAL] = str8_from("DEPTH_FUNC_EQUAL"),
+    [DEPTH_FUNC_LEQUAL] = str8_from("DEPTH_FUNC_LEQUAL"),
+    [DEPTH_FUNC_GREATER] = str8_from("DEPTH_FUNC_GREATER"),
+    [DEPTH_FUNC_NOTEQUAL] = str8_from("DEPTH_FUNC_NOTEQUAL"),
+    [DEPTH_FUNC_GEQUAL] = str8_from("DEPTH_FUNC_GEQUAL"),
+    [DEPTH_FUNC_ALWAYS] = str8_from("DEPTH_FUNC_ALWAYS"),
+};
+
+static str8 sm__ctable_cull_mode_str8[CULL_MODE_MAX] = {
+    [CULL_MODE_DEFAULT] = str8_from("CULL_MODE_DEFAULT"),
+    [CULL_MODE_FRONT] = str8_from("CULL_MODE_FRONT"),
+    [CULL_MODE_BACK] = str8_from("CULL_MODE_BACK"),
+    [CULL_MODE_FRONT_AND_BACK] = str8_from("CULL_MODE_FRONT_AND_BACK"),
+};
+
+static str8 sm__ctable_winding_mode_str8[WINDING_MODE_MAX] = {
+    [WINDING_MODE_DEFAULT] = str8_from("WINDING_MODE_DEFAULT"),
+    [WINDING_MODE_CLOCK_WISE] = str8_from("WINDING_MODE_CLOCK_WISE"),
+    [WINDING_MODE_COUNTER_CLOCK_WISE] = str8_from("WINDING_MODE_COUNTER_CLOCK_WISE"),
+};
+
+static str8 sm__cable_polygon_mode_str8[POLYGON_MODE_MAX] = {
+    [POLYGON_MODE_DEFAULT] = str8_from("POLYGON_MODE_DEFAULT"),
+    [POLYGON_MODE_POINT] = str8_from("POLYGON_MODE_POINT"),
+    [POLYGON_MODE_LINE] = str8_from("POLYGON_MODE_LINE"),
+    [POLYGON_MODE_FILL] = str8_from("POLYGON_MODE_FILL"),
+};
+
 static void
-gl__get_GL_texture_formats(u32 pixel_format, u32 *gl_internal_format, u32 *gl_format, u32 *gl_type)
+gl__renderer_get_texture_formats(
+    enum texture_pixel_format pixel_format, u32 *gl_internal_format, u32 *gl_format, u32 *gl_type)
 {
 	*gl_internal_format = 0;
 	*gl_format = 0;
@@ -714,23 +750,56 @@ gl__get_GL_texture_formats(u32 pixel_format, u32 *gl_internal_format, u32 *gl_fo
 			*gl_type = GL_UNSIGNED_BYTE;
 		}
 		break;
+	case TEXTURE_PIXELFORMAT_DEPTH:
+		{
+			*gl_internal_format = GL_DEPTH_COMPONENT32;
+			*gl_format = GL_DEPTH_COMPONENT;
+			*gl_type = GL_FLOAT;
+		}
+		break;
+	case TEXTURE_PIXELFORMAT_DEPTH_STENCIL:
+		{
+			*gl_internal_format = GL_DEPTH24_STENCIL8;
+			*gl_format = GL_DEPTH_STENCIL;
+			*gl_type = GL_UNSIGNED_INT_24_8;
+		}
+		break;
 	default: sm__unreachable(); break;
 	}
 }
 
 static void
-gl__upload_texture(image_resource *image)
+gl__renderer_texture_create(struct renderer_texture *texture)
 {
-	sm__assert(image->texture_handle == 0);
-	u32 handle = 0;
+	// sm__assert(texture->data || texture->resource_handle.id != INVALID_HANDLE);
 
-	u32 width = image->width;
-	u32 height = image->height;
-	u32 pixel_format = image->pixel_format;
-	u8 *data = image->data;
+	u32 handle = 0;
+	u32 width;
+	u32 height;
+	enum texture_pixel_format pixel_format;
+	// enum texture_usage usage;
+	u8 *data;
+
+	if (texture->resource_handle.id != INVALID_HANDLE)
+	{
+		struct sm__resource_image *image = resource_image_at(texture->resource_handle);
+		width = image->width;
+		height = image->height;
+		pixel_format = (enum texture_pixel_format)image->pixel_format;
+		// usage = TEXTURE_USAGE_IMMUTABLE;
+		data = image->data;
+	}
+	else
+	{
+		width = texture->width;
+		height = texture->height;
+		pixel_format = texture->pixel_format;
+		// usage = texture->usage;
+		data = texture->data;
+	}
 
 	u32 gl_internal_format, gl_format, gl_type;
-	gl__get_GL_texture_formats(image->pixel_format, &gl_internal_format, &gl_format, &gl_type);
+	gl__renderer_get_texture_formats(pixel_format, &gl_internal_format, &gl_format, &gl_type);
 
 	glCall(glGenTextures(1, &handle));
 	glCall(glBindTexture(GL_TEXTURE_2D, handle));
@@ -738,6 +807,7 @@ gl__upload_texture(image_resource *image)
 	glCall(glTexImage2D(
 	    GL_TEXTURE_2D, 0, (i32)gl_internal_format, (i32)width, (i32)height, 0, gl_format, gl_type, data));
 
+#if 1
 	if (pixel_format == TEXTURE_PIXELFORMAT_UNCOMPRESSED_GRAYSCALE)
 	{
 		i32 swizzle_mask[] = {GL_RED, GL_RED, GL_RED, GL_ONE};
@@ -758,51 +828,2046 @@ gl__upload_texture(image_resource *image)
 	glCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
 	glCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
 	glCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+#endif
 	glCall(glBindTexture(GL_TEXTURE_2D, 0));
 
-	image->texture_handle = handle;
+	texture->gl_handle = handle;
 }
 
-static struct renderer RC;
+static void
+gl__renderer_pass_create(struct renderer_pass *pass)
+{
+	sm__assert(pass);
 
-static void sm__renderer_begin(u32 mode);
-static void sm__renderer_end(void);
+	// store current framebuffer binding (restored at end of function)
+	GLuint gl_orig_fb;
+	glCall(glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint *)&gl_orig_fb));
 
-static b8 sm__batch_overflow(u32 vertices);
-static void sm__batch_draw(void);
+	// create a framebuffer object
+	glCall(glGenFramebuffers(1, &pass->gl_handle));
+	glCall(glBindFramebuffer(GL_FRAMEBUFFER, pass->gl_handle));
 
-static void sm__position_v3(v3 position);
-static void sm__position_3f(f32 x, f32 y, f32 z);
-static void sm__position_v2(v2 position);
-static void sm__position_2f(f32 x, f32 y);
+	for (u32 i = 0; i < MAX_COLOR_ATTACHMENTS; ++i)
+	{
+		handle_t texture_id = pass->color_attachments[i].id;
+		if (texture_id != INVALID_HANDLE)
+		{
+			struct renderer_texture *texture = renderer_texture_at((texture_handle){texture_id});
+			glCall(glFramebufferTexture2D(
+			    GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, texture->gl_handle, 0));
+		}
+	}
 
-static void sm__uv_v2(v2 uv);
-static void sm__uv_2f(f32 x, f32 y);
-static void sm__color_v4(v4 color);
-static void sm__color_4ub(u8 r, u8 g, u8 b, u8 a);
-static void sm__color(color color);
+	handle_t depth_stencil_id = pass->depth_stencil_attachment.id;
+	if (depth_stencil_id != INVALID_HANDLE)
+	{
+		struct renderer_texture *texture = renderer_texture_at((texture_handle){depth_stencil_id});
+		GLenum att_type = texture->pixel_format == TEXTURE_PIXELFORMAT_DEPTH_STENCIL
+				      ? GL_DEPTH_STENCIL_ATTACHMENT
+				      : GL_DEPTH_ATTACHMENT;
+		glCall(glFramebufferTexture2D(GL_FRAMEBUFFER, att_type, GL_TEXTURE_2D, texture->gl_handle, 0));
+	}
 
-static void sm__m4_load_identity(void);
-static void sm__m4_mul(mat4 mat);
-static void sm__m4_mode(enum matrix_mode mode);
-static void sm__m4_push(void);
-static void sm__m4_pop(void);
+	GLenum status;
+	glCall(status = glCheckFramebufferStatus(GL_FRAMEBUFFER));
+
+	sm__assert(status == GL_FRAMEBUFFER_COMPLETE);
+
+	log_trace(str8_from("pass successfully created!"));
+
+	// restore original framebuffer binding
+	glCall(glBindFramebuffer(GL_FRAMEBUFFER, gl_orig_fb));
+}
+
+static void
+gl__shader_cache_actives(struct renderer_shader *shader)
+{
+	GLint count = 0;
+
+	GLint size;  // size of the variable
+	GLenum type; // type of the variable (float, vec3 or mat4, etc)
+	GLint location;
+
+	const GLsizei bufSize = 64; // maximum name length
+	GLchar _name[bufSize];	    // variable name in GLSL
+	GLsizei length;		    // name length
+
+	glCall(glUseProgram(shader->gl_shader_program_handle));
+
+	glCall(glGetProgramiv(shader->gl_shader_program_handle, GL_ACTIVE_ATTRIBUTES, &count));
+	shader->attributes_count = count;
+	shader->attributes = arena_reserve(&RC.arena, count * sizeof(struct shader_attribute));
+
+	for (i32 i = 0; i < count; ++i)
+	{
+		glCall(glGetActiveAttrib(shader->gl_shader_program_handle, i, bufSize, &length, &size, &type, _name));
+		glCall(location = glGetAttribLocation(shader->gl_shader_program_handle, _name));
+		sm__assert(location != -1);
+
+		str8 name = (str8){.idata = _name, .size = length};
+
+		shader->attributes[i].name = str8_dup(&RC.arena, name);
+		shader->attributes[i].size = size;
+		shader->attributes[i].type = gl__to_shader_type(type);
+		shader->attributes[i].location = location;
+	}
+
+	glCall(glGetProgramiv(shader->gl_shader_program_handle, GL_ACTIVE_UNIFORMS, &count));
+
+	u32 n_uniforms = 0, n_samplers = 0;
+	shader->uniforms = arena_reserve(&RC.arena, count * sizeof(struct shader_uniform));
+	shader->samplers = arena_reserve(&RC.arena, count * sizeof(struct shader_sampler));
+	// shader->uniforms_count = count;
+
+	for (i32 i = 0; i < count; ++i)
+	{
+		glCall(glGetActiveUniform(shader->gl_shader_program_handle, i, bufSize, &length, &size, &type, _name));
+		glCall(location = glGetUniformLocation(shader->gl_shader_program_handle, _name));
+		sm__assert(location != -1);
+
+		if (strncmp(_name, "gl_", 3) == 0)
+		{
+			continue;
+		}
+
+		i8 *bracket = strchr(_name, '[');
+		b32 is_first = 0;
+
+		if (bracket == 0 || (bracket[1] == '0' && bracket[2] == ']'))
+		{
+			if (bracket)
+			{
+				sm__assert(bracket[3] == '\0'); // array of structs not supported yet
+				*bracket = '\0';
+				length = (GLint)(bracket - _name);
+			}
+			is_first = 1;
+		}
+
+		if (type >= GL_SAMPLER_1D && type <= GL_SAMPLER_2D_SHADOW)
+		{
+			glCall(glUniform1i(location, n_samplers));
+			shader->samplers[n_samplers].name = str8_from_cstr(&RC.arena, _name);
+			shader->samplers[n_samplers].type = gl__to_shader_type(type);
+			shader->samplers[n_samplers].location = n_samplers;
+			n_samplers++;
+		}
+		else
+		{
+			str8 name = (str8){.idata = _name, .size = length};
+			if (is_first)
+			{
+				shader->uniforms[n_uniforms].name = str8_dup(&RC.arena, name);
+				shader->uniforms[n_uniforms].size = size;
+				shader->uniforms[n_uniforms].type = gl__to_shader_type(type);
+				shader->uniforms[n_uniforms].location = location;
+				n_uniforms++;
+			}
+			else if (bracket != 0 && bracket[1] > '0')
+			{
+				*bracket = '\0';
+				for (i32 u = n_uniforms - 1; u >= 0; u--)
+				{
+					if (str8_eq(shader->uniforms[u].name, name))
+					{
+						u32 index = (u32)(atoi(bracket + 1) + 1);
+						if (index > shader->uniforms[u].size)
+						{
+							shader->uniforms[u].size = index;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	glCall(glUseProgram(0));
+
+	// shader->uniforms = arena_resize(arena, shader->uniforms, n_uniforms);
+	// shader->samplers = arena_resize(arena, shader->samplers, n_samplers);
+
+	shader->uniforms_count = n_uniforms;
+	shader->samplers_count = n_samplers;
+
+	for (u32 i = 0; i < n_uniforms; ++i)
+	{
+		struct shader_uniform *uni = shader->uniforms + i;
+
+		u32 array_size = uni->size * gl__ctable_type_size[uni->type];
+		shader->uniforms[i].data = arena_reserve(&RC.arena, array_size);
+		memset(uni->data, 0x0, array_size);
+		// uni->dirty = 0;
+	}
+
+	log_trace(str8_from("uniforms: {s}"), shader->label);
+	for (u32 i = 0; i < shader->uniforms_count; ++i)
+	{
+		struct shader_uniform *uni = shader->uniforms + i;
+		log_trace(str8_from("\tname: {s}, loc: {i3d}, size: {i3d}, type: {s}"), uni->name, uni->location,
+		    uni->size, sm__ctable_shader_type_str8[uni->type]);
+	}
+
+	log_trace(str8_from("samplers: {s}"), shader->label);
+	for (u32 i = 0; i < shader->samplers_count; ++i)
+	{
+		struct shader_sampler *samp = shader->samplers + i;
+		log_trace(str8_from("\tname: {s}, loc: {i3d}, type: {s}"), samp->name, samp->location,
+		    sm__ctable_shader_type_str8[samp->type]);
+	}
+
+	log_trace(str8_from("attributes: {s}"), shader->label);
+	for (u32 i = 0; i < shader->attributes_count; ++i)
+	{
+		struct shader_attribute *attr = shader->attributes + i;
+		log_trace(str8_from("\tname: {s}, loc: {i3d}, size: {i3d}, type: {s}"), attr->name, attr->location,
+		    attr->size, sm__ctable_shader_type_str8[attr->type]);
+	}
+}
+
+static void
+gl__renderer_shader_create(struct renderer_shader *shader)
+{
+	if (shader->gl_shader_program_handle == 0)
+	{
+		if (shader->vs.handle.id != INVALID_HANDLE)
+		{
+			struct sm__resource_text *vs = resource_text_at(shader->vs.handle);
+			shader->gl_vs_handle = gl__renderer_shader_compile_vert(vs->data);
+		}
+		else
+		{
+			shader->gl_vs_handle = gl__renderer_shader_compile_vert(shader->vs.source);
+		}
+		if (shader->fs.handle.id != INVALID_HANDLE)
+		{
+			struct sm__resource_text *fs = resource_text_at(shader->fs.handle);
+			shader->gl_fs_handle = gl__renderer_shader_compile_frag(fs->data);
+		}
+		else
+		{
+			shader->gl_fs_handle = gl__renderer_shader_compile_frag(shader->fs.source);
+		}
+
+		sm__assert(shader->gl_fs_handle);
+		sm__assert(shader->gl_vs_handle);
+
+		glCall(shader->gl_shader_program_handle = glCreateProgram());
+
+		if (!gl__renderer_shader_link(shader))
+		{
+			glCall(glDeleteProgram(shader->gl_shader_program_handle));
+			glCall(glDeleteShader(shader->gl_fs_handle));
+			glCall(glDeleteShader(shader->gl_vs_handle));
+			log_error(str8_from("error linking program shader"));
+
+			return;
+		}
+
+		gl__shader_cache_actives(shader);
+	}
+}
+
+static void
+gl__renderer_sampler_create(struct renderer_sampler *sampler)
+{
+	glCall(glGenSamplers(1, &sampler->gl_handle));
+
+	static GLint ctable_filter[FILTER_MAX] = {
+	    [FILTER_DEFAULT] = GL_NEAREST,
+	    [FILTER_NONE] = GL_NEAREST,
+	    [FILTER_NEAREST] = GL_NEAREST,
+	    [FILTER_LINEAR] = GL_LINEAR,
+	};
+	const GLint gl_min_filter = ctable_filter[sampler->min_filter];
+	const GLint gl_mag_filter = ctable_filter[sampler->mag_filter];
+
+	static GLint ctable_wrap[WRAP_MAX] = {
+
+	    [WRAP_DEFAULT] = GL_REPEAT,
+	    [WRAP_REPEAT] = GL_REPEAT,
+	    [WRAP_CLAMP_TO_EDGE] = GL_CLAMP_TO_EDGE,
+	    [WRAP_CLAMP_TO_BORDER] = GL_CLAMP_TO_BORDER,
+	    [WRAP_MIRRORED_REPEAT] = GL_MIRRORED_REPEAT,
+	};
+
+	GLint wrap_u = ctable_wrap[sampler->wrap_u];
+	GLint wrap_v = ctable_wrap[sampler->wrap_v];
+	GLint wrap_w = ctable_wrap[sampler->wrap_w];
+
+	glSamplerParameteri(sampler->gl_handle, GL_TEXTURE_MIN_FILTER, gl_min_filter);
+	glSamplerParameteri(sampler->gl_handle, GL_TEXTURE_MAG_FILTER, gl_mag_filter);
+
+	// GL spec has strange defaults for mipmap min/max lod: -1000 to +1000
+	f32 min_lod = glm_clamp(sampler->min_lod, 0.0f, 1000.0f);
+	f32 max_lod = glm_clamp(sampler->max_lod, 0.0f, 1000.0f);
+	glSamplerParameterf(sampler->gl_handle, GL_TEXTURE_MIN_LOD, min_lod);
+	glSamplerParameterf(sampler->gl_handle, GL_TEXTURE_MAX_LOD, max_lod);
+	glSamplerParameteri(sampler->gl_handle, GL_TEXTURE_WRAP_S, wrap_u);
+	glSamplerParameteri(sampler->gl_handle, GL_TEXTURE_WRAP_T, wrap_v);
+	glSamplerParameteri(sampler->gl_handle, GL_TEXTURE_WRAP_R, wrap_w);
+
+	f32 border[4];
+	switch (sampler->border_color)
+	{
+	case BORDER_COLOR_TRANSPARENT_BLACK:
+		{
+			border[0] = 0.0f, border[1] = 0.0f, border[2] = 0.0f, border[3] = 0.0f;
+		}
+		break;
+	case BORDER_COLOR_OPAQUE_WHITE:
+		{
+			border[0] = 1.0f, border[1] = 1.0f, border[2] = 1.0f, border[3] = 1.0f;
+		}
+		break;
+	default:
+		{
+			border[0] = 0.0f, border[1] = 0.0f, border[2] = 0.0f, border[3] = 1.0f;
+		}
+		break;
+	}
+	glSamplerParameterfv(sampler->gl_handle, GL_TEXTURE_BORDER_COLOR, border);
+}
+
+static void
+sm__renderer_buffer_bind(GLenum target, GLuint buffer)
+{
+	if (target == GL_ARRAY_BUFFER)
+	{
+		if (RC.current.gl.bind_vertex_buffer != buffer)
+		{
+			glCall(glBindBuffer(GL_ARRAY_BUFFER, buffer));
+			RC.current.gl.bind_vertex_buffer = buffer;
+		}
+	}
+	else
+	{
+		if (RC.current.gl.bind_index_buffer != buffer)
+		{
+			glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer));
+			RC.current.gl.bind_index_buffer = buffer;
+		}
+	}
+}
+
+static void
+sm__renderer_buffer_store(GLenum target)
+{
+	if (target == GL_ARRAY_BUFFER)
+	{
+		RC.current.gl.store_bind_vertex_buffer = RC.current.gl.bind_vertex_buffer;
+	}
+	else
+	{
+		RC.current.gl.store_bind_index_buffer = RC.current.gl.bind_index_buffer;
+	}
+}
+
+static void
+sm__renderer_buffer_restore(GLenum target)
+{
+	if (target == GL_ARRAY_BUFFER)
+	{
+		sm__renderer_buffer_bind(GL_ARRAY_BUFFER, RC.current.gl.store_bind_vertex_buffer);
+		RC.current.gl.store_bind_vertex_buffer = 0;
+	}
+	else
+	{
+		sm__renderer_buffer_bind(GL_ELEMENT_ARRAY_BUFFER, RC.current.gl.store_bind_index_buffer);
+		RC.current.gl.store_bind_index_buffer = 0;
+	}
+}
+
+static void
+gl__renderer_buffer_create(struct renderer_buffer *buffer)
+{
+	static GLenum ctable_usage[BUFFER_USAGE_MAX] = {
+	    [BUFFER_USAGE_DEFAULT] = GL_STATIC_DRAW,
+	    [BUFFER_USAGE_IMMUTABLE] = GL_STATIC_DRAW,
+	    [BUFFER_USAGE_DYNAMIC] = GL_DYNAMIC_DRAW,
+	    [BUFFER_USAGE_STREAM] = GL_STREAM_DRAW,
+	};
+
+	static GLenum ctable_target[BUFFER_TYPE_MAX] = {
+	    [BUFFER_TYPE_DEFAULT] = GL_ARRAY_BUFFER,
+	    [BUFFER_TYPE_VERTEXBUFFER] = GL_ARRAY_BUFFER,
+	    [BUFFER_TYPE_INDEXBUFFER] = GL_ELEMENT_ARRAY_BUFFER,
+	};
+
+	GLenum usage = ctable_usage[buffer->usage];
+	GLenum target = ctable_target[buffer->buffer_type];
+
+	glCall(glGenBuffers(1, &buffer->gl_handle));
+
+	sm__renderer_buffer_store(target);
+	sm__renderer_buffer_bind(target, buffer->gl_handle);
+
+	glCall(glBufferData(target, buffer->size, 0, usage));
+	if (buffer->usage == BUFFER_USAGE_IMMUTABLE)
+	{
+		sm__assert(buffer->data);
+		glCall(glBufferSubData(target, 0, buffer->size, buffer->data));
+	}
+	sm__renderer_buffer_restore(target);
+}
+
+static buffer_handle
+sm__renderer_buffer_alloc(void)
+{
+	buffer_handle result;
+
+	handle_t handle = handle_new(&RC.arena, &RC.pools.buffer_pool);
+	result.id = handle;
+
+	return result;
+}
+
+static b32
+sm__renderer_buffer_validate(sm__maybe_unused const struct renderer_buffer_desc *desc)
+{
+#if !defined(SM_DEBUG)
+	return (1);
+#else
+
+	b32 result = 1;
+	sm__assert(desc);
+	sm__assertf(desc->_start_canary == 0, "renderer_buffer_desc not initialized");
+	sm__assertf(desc->_end_canary == 0, "renderer_buffer_desc not initialized");
+	sm__assertf(desc->label.size > 0, "renderer_buffer_desc.label not set");
+
+	sm__assertf(desc->buffer_type >= BUFFER_TYPE_DEFAULT && desc->buffer_type < BUFFER_TYPE_MAX,
+	    "renderer_buffer_desc.buffer_type invalid value");
+	sm__assertf(desc->usage >= BUFFER_USAGE_DEFAULT && desc->usage < BUFFER_USAGE_MAX,
+	    "renderer_buffer_desc.usage invalid value");
+	sm__assertf(desc->data, "renderer_buffer_desc.data not set");
+	sm__assertf(desc->size > 0, "renderer_buffer_desc.size not set");
+
+	return (result);
+#endif
+}
+
+static struct renderer_buffer_desc
+sm__renderer_buffer_defaults(const struct renderer_buffer_desc *desc)
+{
+	struct renderer_buffer_desc result;
+
+	result = *desc;
+
+	result.buffer_type = result.buffer_type == BUFFER_TYPE_DEFAULT ? BUFFER_TYPE_VERTEXBUFFER : result.buffer_type;
+	result.usage = result.usage == BUFFER_USAGE_DEFAULT ? BUFFER_USAGE_IMMUTABLE : result.usage;
+
+	return (result);
+}
+
+struct renderer_buffer *
+renderer_buffer_at(buffer_handle handle)
+{
+	sm__assert(INVALID_HANDLE != handle.id);
+	u32 slot_index = handle_index(handle.id);
+
+	return &RC.pools.buffers[slot_index];
+}
+
+buffer_handle
+renderer_buffer_make(const struct renderer_buffer_desc *desc)
+{
+	buffer_handle result = sm__renderer_buffer_alloc();
+	if (result.id != INVALID_HANDLE)
+	{
+		struct renderer_buffer *buffer_at = renderer_buffer_at(result);
+
+		if (sm__renderer_buffer_validate(desc))
+		{
+			struct renderer_buffer_desc desc_def = sm__renderer_buffer_defaults(desc);
+
+			buffer_at->slot.id = result.id;
+			buffer_at->label = desc_def.label;
+
+			buffer_at->buffer_type = desc_def.buffer_type;
+			buffer_at->usage = desc_def.usage;
+			buffer_at->size = desc_def.size;
+			buffer_at->data = desc_def.data;
+
+			gl__renderer_buffer_create(buffer_at);
+		}
+	}
+
+	return (result);
+}
+
+static texture_handle
+sm__renderer_texture_alloc(void)
+{
+	texture_handle result;
+
+	handle_t handle = handle_new(&RC.arena, &RC.pools.texture_pool);
+	result.id = handle;
+
+	return result;
+}
+
+static b32
+sm__renderer_texture_validate(sm__maybe_unused const struct renderer_texture_desc *desc)
+{
+#if !defined(SM_DEBUG)
+	return (1);
+#else
+
+	b32 result = 1;
+	sm__assert(desc);
+	sm__assertf(desc->_start_canary == 0, "renderer_texture_desc not initialized");
+	sm__assertf(desc->_end_canary == 0, "renderer_texture_desc not initialized");
+	sm__assertf(desc->label.size > 0, "renderer_texture_desc.label not set");
+
+	if (desc->handle.id != INVALID_HANDLE)
+	{
+		sm__assertf(desc->width == 0, "renderer_texture_desc.width and .resource_handle are ambiguos");
+		sm__assertf(desc->height == 0, "renderer_texture_desc.height and .resource_handle are ambiguos");
+		sm__assertf(desc->usage == TEXTURE_USAGE_DEFAULT,
+		    "renderer_texture_desc.usage and .resource_handle are ambiguos");
+		sm__assertf(desc->pixel_format == TEXTURE_PIXELFORMAT_DEFAULT,
+		    "renderer_texture_desc.pixel_format and .resource_handle are ambiguos");
+		sm__assertf(desc->data == 0, "renderer_texture_desc.data and .resource_handle are ambiguos");
+	}
+	else
+	{
+		sm__assertf(desc->width > 0, "renderer_texture_desc.width must be > 0");
+		sm__assertf(desc->height > 0, "renderer_texture_desc.height must be > 0");
+		sm__assertf(desc->usage >= TEXTURE_USAGE_DEFAULT && desc->usage < TEXTURE_USAGE_MAX,
+		    "renderer_texture_desc.usage: invalid value");
+		sm__assertf(
+		    desc->pixel_format >= TEXTURE_PIXELFORMAT_DEFAULT && desc->pixel_format < TEXTURE_PIXELFORMAT_MAX,
+		    "renderer_texture_desc.pixel_format: invalid pixel format");
+
+		if (desc->usage == TEXTURE_USAGE_IMMUTABLE)
+		{
+			sm__assertf(desc->data != 0, "renderer_texture_desc.data not set");
+		}
+		else
+		{
+			sm__assertf(desc->data == 0,
+			    "renderer_texture_desc.data set with but not marked as TEXTURE_USAGE_IMMUTABLE");
+		}
+	}
+
+	return (result);
+#endif
+}
+
+static struct renderer_texture_desc
+sm__renderer_texture_defaults(const struct renderer_texture_desc *desc)
+{
+	struct renderer_texture_desc result;
+
+	result = *desc;
+
+	if (desc->handle.id == INVALID_HANDLE)
+	{
+		result.pixel_format = (result.pixel_format == TEXTURE_PIXELFORMAT_DEFAULT)
+					  ? TEXTURE_PIXELFORMAT_UNCOMPRESSED_R8G8B8
+					  : result.pixel_format;
+		result.usage = (result.usage == TEXTURE_USAGE_DEFAULT) ? TEXTURE_USAGE_IMMUTABLE : result.usage;
+	}
+
+	return (result);
+}
+
+struct renderer_texture *
+renderer_texture_at(texture_handle handle)
+{
+	sm__assert(INVALID_HANDLE != handle.id);
+	u32 slot_index = handle_index(handle.id);
+
+	return &RC.pools.textures[slot_index];
+}
+
+texture_handle
+renderer_texture_make(const struct renderer_texture_desc *desc)
+{
+	texture_handle result = sm__renderer_texture_alloc();
+	if (result.id != INVALID_HANDLE)
+	{
+		struct renderer_texture *texture_at = renderer_texture_at(result);
+
+		if (sm__renderer_texture_validate(desc))
+		{
+			struct renderer_texture_desc desc_def = sm__renderer_texture_defaults(desc);
+			texture_at->slot.id = result.id;
+			texture_at->label = desc_def.label;
+
+			if (desc_def.handle.id != INVALID_HANDLE)
+			{
+				texture_at->resource_handle.id = desc_def.handle.id;
+			}
+			else
+			{
+				texture_at->resource_handle.id = desc_def.handle.id;
+				texture_at->width = desc_def.width;
+				texture_at->height = desc_def.height;
+				texture_at->pixel_format = desc_def.pixel_format;
+				texture_at->usage = desc_def.usage;
+				texture_at->data = desc_def.data;
+			}
+
+			gl__renderer_texture_create(texture_at);
+		}
+	}
+
+	return (result);
+}
+
+static sampler_handle
+sm__renderer_sampler_alloc(void)
+{
+	sampler_handle result;
+
+	handle_t handle = handle_new(&RC.arena, &RC.pools.sampler_pool);
+	result.id = handle;
+
+	return result;
+}
+
+static b32
+sm__renderer_sampler_validate(sm__maybe_unused const struct renderer_sampler_desc *desc)
+{
+#if !defined(SM_DEBUG)
+	return (1);
+#else
+
+	b32 result = 1;
+	sm__assert(desc);
+	sm__assertf(desc->_start_canary == 0, "renderer_sampler_desc not initialized");
+	sm__assertf(desc->_end_canary == 0, "renderer_sampler_desc not initialized");
+	sm__assertf(desc->label.size > 0, "renderer_sampler_desc.label not set");
+
+	sm__assertf(desc->min_filter >= FILTER_DEFAULT && desc->min_filter < FILTER_MAX,
+	    "renderer_sampler_desc.min_filter invalid value");
+	sm__assertf(desc->mag_filter >= FILTER_DEFAULT && desc->mag_filter < FILTER_MAX,
+	    "renderer_sampler_desc.mag_filter invalid value");
+
+	sm__assertf(
+	    desc->wrap_u >= WRAP_DEFAULT && desc->wrap_u < WRAP_MAX, "renderer_sampler_desc.wrap_u invalid value");
+	sm__assertf(
+	    desc->wrap_v >= WRAP_DEFAULT && desc->wrap_v < WRAP_MAX, "renderer_sampler_desc.wrap_v invalid value");
+	sm__assertf(
+	    desc->wrap_w >= WRAP_DEFAULT && desc->wrap_w < WRAP_MAX, "renderer_sampler_desc.wrap_w invalid value");
+
+	sm__assertf(!isnanf(desc->min_lod) && !isinff(desc->min_lod), "renderer_sampler_desc.min_lod invalid value");
+	sm__assertf(!isnanf(desc->max_lod) && !isinff(desc->max_lod), "renderer_sampler_desc.max_lod invalid value");
+
+	sm__assertf(desc->border_color >= BORDER_COLOR_DEFAULT && desc->border_color < BORDER_COLOR_MAX,
+	    "renderer_sampler_desc.border_color invalid value");
+
+	return (result);
+#endif
+}
+
+static struct renderer_sampler_desc
+sm__renderer_sampler_defaults(const struct renderer_sampler_desc *desc)
+{
+	struct renderer_sampler_desc result;
+
+	result = *desc;
+
+	result.min_filter = (result.min_filter == FILTER_DEFAULT) ? FILTER_NEAREST : result.min_filter;
+	result.mag_filter = (result.mag_filter == FILTER_DEFAULT) ? FILTER_NEAREST : result.mag_filter;
+
+	result.wrap_u = (result.wrap_u == WRAP_DEFAULT) ? WRAP_REPEAT : result.wrap_u;
+	result.wrap_v = (result.wrap_v == WRAP_DEFAULT) ? WRAP_REPEAT : result.wrap_v;
+	result.wrap_w = (result.wrap_w == WRAP_DEFAULT) ? WRAP_REPEAT : result.wrap_w;
+
+	result.max_lod = (result.max_lod == 0.0f) ? FLT_MAX : result.max_lod;
+
+	result.border_color =
+	    (result.border_color == BORDER_COLOR_DEFAULT) ? BORDER_COLOR_OPAQUE_WHITE : result.border_color;
+
+	return (result);
+}
+
+struct renderer_sampler *
+renderer_sampler_at(sampler_handle handle)
+{
+	sm__assert(INVALID_HANDLE != handle.id);
+	u32 slot_index = handle_index(handle.id);
+
+	return &RC.pools.samplers[slot_index];
+}
+
+sampler_handle
+renderer_sampler_make(const struct renderer_sampler_desc *desc)
+{
+	sampler_handle result = sm__renderer_sampler_alloc();
+	if (result.id != INVALID_HANDLE)
+	{
+		struct renderer_sampler *sampler_at = renderer_sampler_at(result);
+
+		if (sm__renderer_sampler_validate(desc))
+		{
+			struct renderer_sampler_desc desc_def = sm__renderer_sampler_defaults(desc);
+
+			sampler_at->slot.id = result.id;
+			sampler_at->label = desc_def.label;
+
+			sampler_at->min_filter = desc_def.min_filter;
+			sampler_at->mag_filter = desc_def.mag_filter;
+			sampler_at->wrap_u = desc_def.wrap_u;
+			sampler_at->wrap_v = desc_def.wrap_v;
+			sampler_at->wrap_w = desc_def.wrap_w;
+			sampler_at->min_lod = desc_def.min_lod;
+			sampler_at->max_lod = desc_def.max_lod;
+			sampler_at->border_color = desc_def.border_color;
+
+			gl__renderer_sampler_create(sampler_at);
+		}
+	}
+
+	return (result);
+}
+
+static pass_handle
+sm__renderer_pass_alloc(void)
+{
+	pass_handle result;
+
+	handle_t handle = handle_new(&RC.arena, &RC.pools.pass_pool);
+	result.id = handle;
+
+	return result;
+}
+
+static b32
+sm__renderer_pass_validate(sm__maybe_unused const struct renderer_pass_desc *desc)
+{
+#if !defined(SM_DEBUG)
+	return (1);
+#else
+
+	b32 result = 1;
+	sm__assert(desc);
+	sm__assertf(desc->_start_canary == 0, "renderer_pass_desc not initialized");
+	sm__assertf(desc->_end_canary == 0, "renderer_pass_desc not initialized");
+	sm__assertf(desc->label.size > 0, "renderer_pass_desc.label not set");
+
+	sm__assertf(
+	    desc->color_attachments[0].id != INVALID_HANDLE || desc->depth_stencil_attachment.id != INVALID_HANDLE,
+	    "renderer_pass_desc must have at least 1 attachment");
+
+	i32 width = -1;
+	i32 height = -1;
+	b32 has_gap = 0;
+	for (u32 i = 0; i < MAX_COLOR_ATTACHMENTS; ++i)
+	{
+		if (desc->color_attachments[i].id != INVALID_HANDLE)
+		{
+			b32 is_valid = handle_valid(&RC.pools.texture_pool, desc->color_attachments[i].id);
+			sm__assertf(is_valid, "renderer_pass_desc.color_attachments.id does not have a valid handle");
+			sm__assert(!has_gap);
+
+			struct renderer_texture *texture = renderer_texture_at(desc->color_attachments[i]);
+			if (width == -1 && height == -1)
+			{
+				width = texture->width;
+				height = texture->height;
+			}
+			else
+			{
+				sm__assert(width > -1 && height > -1);
+				sm__assert((u32)width == texture->width);
+				sm__assert((u32)height == texture->height);
+			}
+		}
+		else
+		{
+			has_gap = 1;
+		}
+	}
+
+	if (desc->depth_stencil_attachment.id != INVALID_HANDLE)
+	{
+		b32 is_valid = handle_valid(&RC.pools.texture_pool, desc->depth_stencil_attachment.id);
+		sm__assertf(is_valid, "renderer_pass_desc.depth_stencil_attachment.id does not have a valid handle");
+
+		struct renderer_texture *texture = renderer_texture_at(desc->depth_stencil_attachment);
+		if (width == -1 && height == -1)
+		{
+			width = texture->width;
+			height = texture->height;
+		}
+		else
+		{
+			sm__assert(width > -1 && height > -1);
+			sm__assert((u32)width == texture->width);
+			sm__assert((u32)height == texture->height);
+		}
+	}
+	sm__assert(width > 0 && height > 0);
+
+	return (result);
+#endif
+}
+
+static struct renderer_pass_desc
+sm__renderer_pass_defaults(const struct renderer_pass_desc *desc)
+{
+	struct renderer_pass_desc result;
+
+	result = *desc;
+
+	return (result);
+}
+
+struct renderer_pass *
+renderer_pass_at(pass_handle handle)
+{
+	sm__assert(INVALID_HANDLE != handle.id);
+	u32 slot_index = handle_index(handle.id);
+
+	return &RC.pools.passes[slot_index];
+}
+
+pass_handle
+renderer_pass_make(const struct renderer_pass_desc *desc)
+{
+	pass_handle result = sm__renderer_pass_alloc();
+	if (result.id != INVALID_HANDLE)
+	{
+		struct renderer_pass *pass_at = renderer_pass_at(result);
+
+		if (sm__renderer_pass_validate(desc))
+		{
+			struct renderer_pass_desc desc_def = sm__renderer_pass_defaults(desc);
+
+			pass_at->slot.id = result.id;
+			pass_at->label = desc_def.label;
+
+			u32 width = 0, height = 0;
+			for (u32 i = 0; i < MAX_COLOR_ATTACHMENTS; ++i)
+			{
+				pass_at->color_attachments[i].id = desc_def.color_attachments[i].id;
+				if (width == 0)
+				{
+					struct renderer_texture *tex =
+					    renderer_texture_at(pass_at->color_attachments[i]);
+					width = tex->width;
+					height = tex->height;
+				}
+			}
+			pass_at->depth_stencil_attachment.id = desc_def.depth_stencil_attachment.id;
+			if (width == 0)
+			{
+				struct renderer_texture *tex = renderer_texture_at(pass_at->depth_stencil_attachment);
+				width = tex->width;
+				height = tex->height;
+			}
+
+			sm__assert(width != 0 && height != 0);
+
+			pass_at->width = width;
+			pass_at->height = height;
+
+			gl__renderer_pass_create(pass_at);
+		}
+	}
+
+	return (result);
+}
+
+static void
+sm__renderer_pass_action_resolve(const struct renderer_pass_action *from, struct renderer_pass_action *to)
+{
+	sm__assert(from && to);
+	*to = *from;
+
+	for (u32 i = 0; i < MAX_COLOR_ATTACHMENTS; ++i)
+	{
+		if (to->colors[i].load_action == LOAD_ACTION_DEFAULT)
+		{
+			to->colors[i].load_action = LOAD_ACTION_CLEAR;
+			to->colors[i].clear_value.r = 127;
+			to->colors[i].clear_value.g = 127;
+			to->colors[i].clear_value.b = 127;
+			to->colors[i].clear_value.a = 127;
+		}
+
+		if (to->colors[i].store_action == STORE_ACTION_DEFAULT)
+		{
+			to->colors[i].store_action = STORE_ACTION_STORE;
+		}
+	}
+
+	if (to->depth.load_action == LOAD_ACTION_DEFAULT)
+	{
+		to->depth.load_action = LOAD_ACTION_CLEAR;
+		to->depth.clear_value = 1.0f;
+	}
+	if (to->depth.store_action == STORE_ACTION_DEFAULT)
+	{
+		to->depth.store_action = STORE_ACTION_DONTCARE;
+	}
+	// if (to->stencil.load_action == LOAD_ACTION_DEFAULT)
+	// {
+	// 	to->stencil.load_action = LOADACTION_CLEAR;
+	// 	to->stencil.clear_value = DEFAULT_CLEAR_STENCIL;
+	// }
+	// if (to->stencil.store_action == _STOREACTION_DEFAULT) { to->stencil.store_action =
+	// STOREACTION_DONTCARE; }
+}
+
+void
+renderer_pass_begin(pass_handle pass, const struct renderer_pass_action *pass_action)
+{
+	struct renderer_pass_action action;
+	sm__renderer_pass_action_resolve(pass_action, &action);
+
+	u32 width = 0;
+	u32 height = 0;
+	struct renderer_pass *pass_at = 0;
+	if (pass.id != INVALID_HANDLE)
+	{
+		pass_at = renderer_pass_at(pass);
+		sm__assert(pass_at->gl_handle);
+		glCall(glBindFramebuffer(GL_FRAMEBUFFER, pass_at->gl_handle));
+
+		width = pass_at->width;
+		height = pass_at->height;
+		RC.current.pass = pass;
+	}
+	else
+	{
+		glCall(glBindFramebuffer(GL_FRAMEBUFFER, RC.current.gl.default_fbo));
+		width = RC.width;
+		height = RC.height;
+		RC.current.pass.id = INVALID_HANDLE;
+	}
+
+	RC.current.in_pass = 1;
+	RC.current.pass_width = width;
+	RC.current.pass_height = height;
+
+	glCall(glViewport(0, 0, width, height));
+	glCall(glScissor(0, 0, width, height));
+
+	for (u32 i = 0; i < MAX_COLOR_ATTACHMENTS; ++i)
+	{
+		if (LOAD_ACTION_CLEAR == action.colors[i].load_action)
+		{
+			v4 c = color_to_v4(action.colors[i].clear_value);
+			if (pass.id != INVALID_HANDLE)
+			{
+				glCall(glDrawBuffer(GL_COLOR_ATTACHMENT0 + i));
+				glCall(glClearColor(c.r, c.g, c.b, c.a));
+				glCall(glClear(GL_COLOR_BUFFER_BIT));
+			}
+			else
+			{
+				glCall(glClearColor(c.r, c.g, c.b, c.a));
+				glCall(glClear(GL_COLOR_BUFFER_BIT));
+				// glCall(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT));
+				break;
+			}
+		}
+	}
+	// TODO: fix this
+	if (pass.id != INVALID_HANDLE)
+	{
+		glCall(glDrawBuffer(GL_COLOR_ATTACHMENT0));
+	}
+
+	if (action.depth.load_action == LOAD_ACTION_CLEAR)
+	{
+		glCall(glClearDepth(action.depth.clear_value));
+		glCall(glClear(GL_DEPTH_BUFFER_BIT));
+	}
+
+	for (u32 i = 0; i < MAX_COLOR_ATTACHMENTS; ++i)
+	{
+		RC.current.store_action_color[i] = action.colors[i].store_action;
+	}
+
+	RC.current.store_action_depth = action.depth.store_action;
+}
+
+void
+renderer_pass_end(void)
+{
+	RC.current.pass.id = INVALID_HANDLE;
+	RC.current.pass_width = 0;
+	RC.current.pass_height = 0;
+
+	glCall(glBindFramebuffer(GL_FRAMEBUFFER, RC.current.gl.default_fbo));
+	RC.current.in_pass = 0;
+}
+
+static shader_handle
+sm__renderer_shader_alloc(void)
+{
+	shader_handle result;
+
+	handle_t handle = handle_new(&RC.arena, &RC.pools.shader_pool);
+	result.id = handle;
+
+	return result;
+}
+
+static b32
+sm__renderer_shader_validate(sm__maybe_unused const struct renderer_shader_desc *desc)
+{
+#if !defined(SM_DEBUG)
+	return (1);
+#else
+
+	sm__assert(desc);
+	sm__assertf(desc->_start_canary == 0, "renderer_shader_desc not initialized");
+	sm__assertf(desc->_end_canary == 0, "renderer_shader_desc not initialized");
+	sm__assertf(desc->label.size > 0, "renderer_shader_desc.label not set");
+
+	sm__assertf(!(desc->vs.handle.id != INVALID_HANDLE && desc->vs.source.size > 0),
+	    "renderer_shader_desc.vs.handle and .source are ambiguos");
+	sm__assertf(!(desc->fs.handle.id != INVALID_HANDLE && desc->fs.source.size > 0),
+	    "renderer_shader_desc.fs.handle and .source are ambiguos");
+
+	sm__assertf(!(desc->vs.handle.id == INVALID_HANDLE && desc->vs.source.size == 0),
+	    "renderer_shader_desc.vs.handle and .source are ambiguos");
+	sm__assertf(!(desc->fs.handle.id == INVALID_HANDLE && desc->fs.source.size == 0),
+	    "renderer_shader_desc.fs.handle and .source are ambiguos");
+
+	return (1);
+#endif
+}
+
+struct renderer_shader *
+renderer_shader_at(shader_handle handle)
+{
+	sm__assert(INVALID_HANDLE != handle.id);
+	u32 slot_index = handle_index(handle.id);
+
+	return &RC.pools.shaders[slot_index];
+}
+
+shader_handle
+renderer_shader_make(const struct renderer_shader_desc *desc)
+{
+	shader_handle result = sm__renderer_shader_alloc();
+	if (result.id != INVALID_HANDLE)
+	{
+		struct renderer_shader *shader_at = renderer_shader_at(result);
+
+		if (sm__renderer_shader_validate(desc))
+		{
+			shader_at->slot.id = result.id;
+			shader_at->label = desc->label;
+
+			if (desc->vs.handle.id != INVALID_HANDLE)
+			{
+				shader_at->vs.handle = desc->vs.handle;
+			}
+			else
+			{
+				shader_at->vs.source = desc->vs.source;
+			}
+
+			if (desc->fs.handle.id != INVALID_HANDLE)
+			{
+				shader_at->fs.handle = desc->fs.handle;
+			}
+			else
+			{
+				shader_at->fs.source = desc->fs.source;
+			}
+
+			gl__renderer_shader_create(shader_at);
+		}
+	}
+
+	return (result);
+}
+
+static struct shader_attribute
+sm__renderer_shader_get_attribute(struct renderer_shader *shader, str8 attribute)
+{
+	struct shader_attribute result = {.location = -1};
+
+	for (u32 i = 0; i < shader->attributes_count; ++i)
+	{
+		if (str8_eq(shader->attributes[i].name, attribute))
+		{
+			sm__assert(shader->attributes[i].location != -1);
+			result = shader->attributes[i];
+			break;
+		}
+	}
+
+	return (result);
+}
+
+static struct shader_uniform
+sm__renderer_shader_get_uniform(struct renderer_shader *shader, str8 attribute)
+{
+	struct shader_uniform result = {.location = -1};
+
+	for (u32 i = 0; i < shader->uniforms_count; ++i)
+	{
+		if (str8_eq(shader->uniforms[i].name, attribute))
+		{
+			sm__assert(shader->uniforms[i].location != -1);
+			result = shader->uniforms[i];
+			break;
+		}
+	}
+
+	return (result);
+}
+
+static struct shader_sampler
+sm__renderer_shader_get_sampler(struct renderer_shader *shader, str8 sampler)
+{
+	struct shader_sampler result = {.location = -1};
+
+	for (u32 i = 0; i < shader->samplers_count; ++i)
+	{
+		if (str8_eq(shader->samplers[i].name, sampler))
+		{
+			sm__assert(shader->samplers[i].location != -1);
+			result = shader->samplers[i];
+			break;
+		}
+	}
+
+	return (result);
+}
+
+static i32
+sm__renderer_shader_get_attribute_slot(struct renderer_shader *shader, str8 attribute, b32 sm__assert)
+{
+	i32 result = -1;
+
+	for (u32 i = 0; i < shader->attributes_count; ++i)
+	{
+		if (str8_eq(shader->attributes[i].name, attribute))
+		{
+			result = shader->attributes[i].location;
+			break;
+		}
+	}
+
+	if (sm__assert)
+	{
+		sm__assert(result != -1);
+	}
+
+	return (result);
+}
+
+static i32
+sm__renderer_shader_get_uniform_loc(struct renderer_shader *shader, str8 uniform, b32 sm__assert)
+{
+	i32 result = -1;
+
+	for (u32 i = 0; i < shader->uniforms_count; ++i)
+	{
+		if (str8_eq(shader->uniforms[i].name, uniform))
+		{
+			result = shader->uniforms[i].location;
+			break;
+		}
+	}
+
+	if (sm__assert)
+	{
+		sm__assert(result != -1);
+	}
+
+	return (result);
+}
+
+static i32
+sm__renderer_shader_get_sampler_slot(struct renderer_shader *shader, str8 sampler, b32 sm__assert)
+{
+	i32 result = -1;
+
+	for (u32 i = 0; i < shader->samplers_count; ++i)
+	{
+		if (str8_eq(shader->samplers[i].name, sampler))
+		{
+			result = shader->samplers[i].location;
+			break;
+		}
+	}
+
+	if (sm__assert)
+	{
+		sm__assert(result != -1);
+	}
+
+	return (result);
+}
+
+static pipeline_handle
+sm__renderer_pipeline_alloc(void)
+{
+	pipeline_handle result;
+
+	handle_t handle = handle_new(&RC.arena, &RC.pools.pipeline_pool);
+	result.id = handle;
+
+	return result;
+}
+
+static b32
+sm__renderer_pipeline_validate(sm__maybe_unused const struct renderer_pipeline_desc *desc)
+{
+#if !defined(SM_DEBUG)
+	return (1);
+#else
+
+	sm__assert(desc);
+	sm__assertf(desc->_start_canary == 0, "renderer_pipeline_desc not initialized");
+	sm__assertf(desc->_end_canary == 0, "renderer_pipeline_desc not initialized");
+	sm__assertf(desc->label.size > 0, "renderer_pipeline_desc.label not set");
+
+	sm__assertf((desc->shader.id != INVALID_HANDLE), "renderer_pipeline_desc.shader not set");
+
+	// Blend
+	sm__assertf((desc->blend.enable >= STATE_DEFAULT && desc->blend.enable < STATE_MAX),
+	    "renderer_pipeline_desc.blend.enable invalid value");
+	sm__assertf((desc->blend.mode >= BLEND_MODE_DEFAULT && desc->blend.mode < BLEND_MODE_MAX),
+	    "renderer_pipeline_desc.blend.mode invalid value");
+
+	// Depth
+	sm__assertf((desc->depth.enable >= STATE_DEFAULT && desc->depth.enable < STATE_MAX),
+	    "renderer_pipeline_desc.depth.enable invalid value");
+	sm__assertf((desc->depth.depth_func >= DEPTH_FUNC_DEFAULT && desc->depth.depth_func < DEPTH_FUNC_MAX),
+	    "renderer_pipeline_desc.depth.depth_func invalid value");
+
+	// Rasterizer
+	sm__assertf((desc->rasterizer.cull_enable >= STATE_DEFAULT && desc->rasterizer.cull_enable < STATE_MAX),
+	    "renderer_pipeline_desc.rasterizer.cull_enable invalid value");
+	sm__assertf((desc->rasterizer.cull_mode >= CULL_MODE_DEFAULT && desc->rasterizer.cull_mode < CULL_MODE_MAX),
+	    "renderer_pipeline_desc.rasterizer.cull_mode invalid value");
+
+	sm__assertf(
+	    (desc->rasterizer.winding_mode >= WINDING_MODE_DEFAULT && desc->rasterizer.winding_mode < WINDING_MODE_MAX),
+	    "renderer_pipeline_desc.rasterizer.winding_mode invalid value");
+
+	sm__assertf((desc->rasterizer.scissor >= STATE_DEFAULT && desc->rasterizer.scissor < STATE_MAX),
+	    "renderer_pipeline_desc.rasterizer.scissor invalid value");
+
+	sm__assertf(
+	    (desc->rasterizer.polygon_mode >= POLYGON_MODE_DEFAULT && desc->rasterizer.polygon_mode < POLYGON_MODE_MAX),
+	    "renderer_pipeline_desc.rasterizer.polygon_mode invalid value");
+
+	sm__assertf(!isnanf(desc->rasterizer.line_width) && !isinff(desc->rasterizer.line_width) &&
+			desc->rasterizer.line_width >= 0.0f,
+	    "renderer_pipeline_desc.rasterizer.line_width has no valid float point value");
+
+	struct renderer_shader *shader_at = renderer_shader_at(desc->shader);
+	for (u32 i = 0; i < shader_at->attributes_count; ++i)
+	{
+		const struct shader_attribute *attr = shader_at->attributes + i;
+		b32 found = 0;
+		for (u32 attr_index = 0; attr_index < MAX_VERTEX_ATTRIBUTES; ++attr_index)
+		{
+			const struct vertex_attr_state *attr_state = desc->layout.attrs + attr_index;
+			if (str8_eq(attr->name, attr_state->name))
+			{
+				found = 1;
+				break;
+			}
+		}
+		sm__assertf(found, "renderer_pipeline_desc.vertex_attr_state not found in shader");
+	}
+
+	for (u32 buf_index = 0; buf_index < MAX_VERTEX_ATTRIBUTES; ++buf_index)
+	{
+		const struct vertex_buffer_layout_state *buffer_state = desc->layout.buffers + buf_index;
+		if (buffer_state->name.size == 0)
+		{
+			continue;
+		}
+
+		b32 found = 0;
+		for (u32 i = 0; i < shader_at->attributes_count; ++i)
+		{
+			const struct shader_attribute *attr = shader_at->attributes + i;
+			if (str8_eq(attr->name, buffer_state->name))
+			{
+				found = 1;
+				break;
+			}
+		}
+		sm__assertf(found, "renderer_pipeline_desc.vertex_buffer_layout_state not found in shader");
+	}
+
+	return (1);
+#endif
+}
+
+static struct renderer_pipeline_desc
+sm__renderer_pipeline_defaults(const struct renderer_pipeline_desc *desc)
+{
+	struct renderer_pipeline_desc result;
+
+	result = *desc;
+
+	result.blend.enable = result.blend.enable == STATE_DEFAULT ? STATE_FALSE : result.blend.enable;
+	result.blend.mode = result.blend.mode == BLEND_MODE_DEFAULT ? BLEND_MODE_ALPHA : result.blend.mode;
+
+	result.depth.enable = result.depth.enable == STATE_DEFAULT ? STATE_FALSE : result.depth.enable;
+	result.depth.depth_func =
+	    result.depth.depth_func == DEPTH_FUNC_DEFAULT ? DEPTH_FUNC_LEQUAL : result.depth.depth_func;
+
+	result.rasterizer.cull_enable =
+	    result.rasterizer.cull_enable == STATE_DEFAULT ? STATE_TRUE : result.rasterizer.cull_enable;
+	result.rasterizer.cull_mode =
+	    result.rasterizer.cull_mode == CULL_MODE_DEFAULT ? CULL_MODE_BACK : result.rasterizer.cull_mode;
+
+	result.rasterizer.winding_mode = result.rasterizer.winding_mode == WINDING_MODE_DEFAULT
+					     ? WINDING_MODE_COUNTER_CLOCK_WISE
+					     : result.rasterizer.winding_mode;
+
+	result.rasterizer.scissor =
+	    result.rasterizer.scissor == STATE_DEFAULT ? STATE_FALSE : result.rasterizer.scissor;
+
+	result.rasterizer.polygon_mode =
+	    result.rasterizer.polygon_mode == POLYGON_MODE_DEFAULT ? POLYGON_MODE_FILL : result.rasterizer.polygon_mode;
+
+	result.rasterizer.line_width = result.rasterizer.line_width == 0.0f ? 1.0f : result.rasterizer.line_width;
+
+	// resolve vertex layout strides and offsets
+	u32 auto_offset[MAX_VERTEX_BUFFERS] = {0};
+	b32 use_auto_offset = 1;
+	for (u32 attr_index = 0; attr_index < MAX_VERTEX_ATTRIBUTES; ++attr_index)
+	{
+		// to use computed offsets, *all* attr offsets must be 0
+		if (result.layout.attrs[attr_index].offset != 0)
+		{
+			use_auto_offset = 0;
+		}
+	}
+
+	for (u32 attr_index = 0; attr_index < MAX_VERTEX_ATTRIBUTES; ++attr_index)
+	{
+		struct vertex_attr_state *attr_state = &result.layout.attrs[attr_index];
+		if (attr_state->format == VERTEX_FORMAT_INVALID)
+		{
+			break;
+		}
+		sm__assert(attr_state->buffer_index < MAX_VERTEX_BUFFERS);
+		if (use_auto_offset)
+		{
+			attr_state->offset = auto_offset[attr_state->buffer_index];
+		}
+		auto_offset[attr_state->buffer_index] += gl__ctable_vertex_format_to_byte_size[attr_state->format];
+	}
+
+	// compute vertex strides if needed
+	for (u32 buf_index = 0; buf_index < MAX_VERTEX_BUFFERS; ++buf_index)
+	{
+		struct vertex_buffer_layout_state *buffer_state = &result.layout.buffers[buf_index];
+		if (buffer_state->stride == 0)
+		{
+			buffer_state->stride = auto_offset[buf_index];
+		}
+	}
+
+	return (result);
+}
+
+struct renderer_pipeline *
+renderer_pipeline_at(pipeline_handle handle)
+{
+	sm__assert(INVALID_HANDLE != handle.id);
+	u32 slot_index = handle_index(handle.id);
+
+	return &RC.pools.pipelines[slot_index];
+}
+
+pipeline_handle
+renderer_pipeline_make(const struct renderer_pipeline_desc *desc)
+{
+	pipeline_handle result = sm__renderer_pipeline_alloc();
+	if (result.id != INVALID_HANDLE)
+	{
+		struct renderer_pipeline *pipeline_at = renderer_pipeline_at(result);
+
+		if (sm__renderer_pipeline_validate(desc))
+		{
+			struct renderer_pipeline_desc desc_def = sm__renderer_pipeline_defaults(desc);
+
+			pipeline_at->slot.id = result.id;
+			pipeline_at->label = desc_def.label;
+
+			pipeline_at->shader = desc_def.shader;
+
+			pipeline_at->depth = desc_def.depth;
+			pipeline_at->blend = desc_def.blend;
+			pipeline_at->rasterizer = desc_def.rasterizer;
+
+			struct renderer_shader *shader_at = renderer_shader_at(desc_def.shader);
+
+			for (u32 i = 0; i < MAX_VERTEX_ATTRIBUTES; ++i)
+			{
+				// struct gl__vertex_attr_desc *gl_attr = pipeline_at->attrs + i;
+				// struct vertex_buffer_layout_state *buf_state = desc_def.layout.buffers + i;
+				struct vertex_attr_state *attr_state = desc_def.layout.attrs + i;
+				struct vertex_buffer_layout_state *buffer_state =
+				    desc_def.layout.buffers + attr_state->buffer_index;
+
+				if (attr_state->name.size > 0)
+				{
+					i32 loc =
+					    sm__renderer_shader_get_attribute_slot(shader_at, attr_state->name, 1);
+					sm__assert(loc < MAX_VERTEX_ATTRIBUTES);
+
+					struct gl__vertex_attributes *gl_attr = pipeline_at->attrs + loc;
+					gl_attr->stride = buffer_state->stride;
+					gl_attr->offset = attr_state->offset;
+					gl_attr->type = gl__ctable_vertex_format_type(attr_state->format);
+					gl_attr->size =
+					    (u8)gl__ctable_vertex_format_components_count[attr_state->format];
+					gl_attr->normalized = gl__vertex_format_normalized(attr_state->format);
+				}
+			}
+		}
+	}
+
+	return (result);
+}
+
+static void
+sm__renderer_blend_apply(const struct blend_state state)
+{
+	struct blend_state current = RC.current.gl.blend;
+	struct blend_state selected = state;
+
+	sm__assert(current.enable != 0);
+	sm__assert(current.mode != 0);
+
+	if (current.enable != selected.enable)
+	{
+		if (selected.enable == STATE_FALSE)
+		{
+			if (current.enable == STATE_TRUE)
+			{
+				glCall(glDisable(GL_BLEND));
+				RC.current.gl.blend.enable = selected.enable;
+			}
+		}
+		else if (current.enable == STATE_TRUE)
+		{
+			if (current.enable == STATE_FALSE)
+			{
+				glCall(glEnable(GL_BLEND));
+				RC.current.gl.blend.enable = selected.enable;
+			}
+		}
+	}
+
+	if (current.mode != selected.mode)
+	{
+		gl__renderer_pipeline_set_blend_mode(selected.mode);
+		RC.current.gl.blend.mode = selected.mode;
+	}
+}
+
+static void
+sm__renderer_depth_apply(const struct depth_state state)
+{
+	struct depth_state current = RC.current.gl.depth;
+	struct depth_state selected = state;
+	sm__assert(current.enable != 0);
+	sm__assert(current.depth_func != 0);
+
+	if (current.enable != selected.enable)
+	{
+		if (selected.enable == STATE_FALSE)
+		{
+			if (current.enable == STATE_TRUE)
+			{
+				glCall(glDisable(GL_DEPTH_TEST));
+				RC.current.gl.depth.enable = selected.enable;
+			}
+		}
+		else if (selected.enable == STATE_TRUE)
+		{
+			if (current.enable == STATE_FALSE)
+			{
+				glCall(glEnable(GL_DEPTH_TEST));
+				RC.current.gl.depth.enable = selected.enable;
+			}
+		}
+	}
+
+	if (current.depth_func != selected.depth_func)
+	{
+		static GLenum ctable_depth_func[DEPTH_FUNC_MAX] = {
+		    [DEPTH_FUNC_NEVER] = GL_NEVER,
+		    [DEPTH_FUNC_LESS] = GL_LESS,
+		    [DEPTH_FUNC_EQUAL] = GL_EQUAL,
+		    [DEPTH_FUNC_LEQUAL] = GL_LEQUAL,
+		    [DEPTH_FUNC_GREATER] = GL_GREATER,
+		    [DEPTH_FUNC_NOTEQUAL] = GL_NOTEQUAL,
+		    [DEPTH_FUNC_GEQUAL] = GL_GEQUAL,
+		    [DEPTH_FUNC_ALWAYS] = GL_ALWAYS,
+		};
+
+		glCall(glDepthFunc(ctable_depth_func[selected.depth_func]));
+		RC.current.gl.depth.depth_func = selected.depth_func;
+	}
+}
+
+static void
+sm__renderer_rasterizer_apply(const struct rasterizer_state state)
+{
+	struct rasterizer_state current = RC.current.gl.rasterizer;
+	struct rasterizer_state selected = state;
+
+	sm__assert(current.cull_enable != 0);
+	sm__assert(current.cull_mode != 0);
+	sm__assert(current.winding_mode != 0);
+	sm__assert(current.scissor != 0);
+	sm__assert(current.polygon_mode != 0);
+	sm__assert(current.line_width != 0);
+
+	// Culling
+	if (current.cull_enable != selected.cull_enable)
+	{
+		if (selected.cull_enable == STATE_FALSE)
+		{
+			if (current.cull_enable == STATE_TRUE)
+			{
+				glCall(glDisable(GL_CULL_FACE));
+				RC.current.gl.rasterizer.cull_enable = selected.cull_enable;
+			}
+		}
+		else if (selected.cull_enable == STATE_TRUE)
+		{
+			if (current.cull_enable == STATE_FALSE)
+			{
+				glCall(glEnable(GL_CULL_FACE));
+				RC.current.gl.rasterizer.cull_enable = selected.cull_enable;
+			}
+		}
+	}
+
+	if (current.cull_mode != selected.cull_mode)
+	{
+		sm__assert(selected.cull_mode < CULL_MODE_MAX);
+		static GLenum ctable_cull[CULL_MODE_MAX] = {
+		    [CULL_MODE_FRONT] = GL_FRONT,
+		    [CULL_MODE_BACK] = GL_BACK,
+		    [CULL_MODE_FRONT_AND_BACK] = GL_FRONT_AND_BACK,
+		};
+		glCall(glCullFace(ctable_cull[selected.cull_mode]));
+		RC.current.gl.rasterizer.cull_mode = selected.cull_mode;
+	}
+
+	// Winding mode
+	if (current.winding_mode != selected.winding_mode)
+	{
+		sm__assert(selected.winding_mode < WINDING_MODE_MAX);
+		static GLenum ctable_winding[WINDING_MODE_MAX] = {
+		    [WINDING_MODE_CLOCK_WISE] = GL_CW,
+		    [WINDING_MODE_COUNTER_CLOCK_WISE] = GL_CCW,
+		};
+
+		glCall(glFrontFace(ctable_winding[selected.winding_mode]));
+		RC.current.gl.rasterizer.winding_mode = selected.winding_mode;
+	}
+
+	// Polygon mode
+	if (current.polygon_mode != selected.polygon_mode)
+	{
+		sm__assert(selected.polygon_mode < POLYGON_MODE_MAX);
+		static GLenum ctable_polygon[] = {
+		    [POLYGON_MODE_POINT] = GL_POINT,
+		    [POLYGON_MODE_LINE] = GL_LINE,
+		    [POLYGON_MODE_FILL] = GL_FILL,
+		};
+		glCall(glPolygonMode(GL_FRONT_AND_BACK, ctable_polygon[selected.polygon_mode]));
+		RC.current.gl.rasterizer.polygon_mode = selected.polygon_mode;
+	}
+
+	// Scissor
+	if (current.scissor != selected.scissor)
+	{
+		if (selected.scissor == STATE_TRUE)
+		{
+			if (current.scissor == STATE_FALSE)
+			{
+				glCall(glEnable(GL_SCISSOR_TEST));
+				RC.current.gl.rasterizer.scissor = selected.scissor;
+			}
+		}
+		else if (selected.scissor == STATE_FALSE)
+		{
+			if (current.scissor == STATE_TRUE)
+			{
+				glCall(glDisable(GL_SCISSOR_TEST));
+				RC.current.gl.rasterizer.scissor = selected.scissor;
+			}
+		}
+	}
+
+	// Line width
+	if (current.line_width != selected.line_width)
+	{
+		glCall(glLineWidth(selected.line_width));
+		RC.current.gl.rasterizer.line_width = selected.line_width;
+	}
+}
+
+static void
+sm__renderer_shader_apply(shader_handle shader)
+{
+	sm__assert(shader.id != INVALID_HANDLE);
+	if (RC.current.shader.id != shader.id)
+	{
+		RC.current.shader = shader;
+
+		struct renderer_shader *s = renderer_shader_at(shader);
+		glCall(glUseProgram(s->gl_shader_program_handle));
+
+		// for (u32 i = 0; i < s->uniforms_count; ++i)
+		// {
+		// 	struct shader_uniform *uni = s->uniforms + i;
+		// 	{
+		// 		if (uni->dirty)
+		// 		{
+		// 			gl__renderer_set_uniform(uni->location, uni->size, uni->type, uni->data);
+		// 			uni->dirty = 0;
+		// 		}
+		// 	}
+		// }
+	}
+}
+
+void
+renderer_pipiline_apply(pipeline_handle pipeline)
+{
+	if (RC.current.pipeline.id != pipeline.id)
+	{
+		RC.current.pipeline = pipeline;
+		struct renderer_pipeline *pipe = renderer_pipeline_at(pipeline);
+
+		sm__renderer_blend_apply(pipe->blend);
+		sm__renderer_depth_apply(pipe->depth);
+		sm__renderer_rasterizer_apply(pipe->rasterizer);
+		sm__renderer_shader_apply(pipe->shader);
+	}
+}
+
+void
+renderer_shader_set_uniform(str8 name, void *value, u32 size, u32 count)
+{
+	sm__assert(count);
+
+	struct renderer_shader *shader = renderer_shader_at(RC.current.shader);
+
+	for (u32 i = 0; i < shader->uniforms_count; ++i)
+	{
+		struct shader_uniform *uni = shader->uniforms + i;
+
+		if (str8_eq(name, uni->name))
+		{
+			sm__assert(gl__ctable_type_size[uni->type] == size);
+			sm__assert(count >= 1 && count <= uni->size);
+
+			if (memcmp(uni->data, value, size * count))
+			{
+				memcpy(uni->data, value, size * count);
+				// uni->dirty = 1;
+			}
+			return;
+		}
+	}
+
+	log_error(str8_from("[{s}] constant not found: {s}"), shader->label, name);
+}
+
+static b32
+sm__renderer_bindings_validate(struct renderer_bindings *bindings)
+{
+#if !defined(SM_DEBUG)
+	return (1);
+#else
+	sm__assertf(bindings->_start_canary == 0, "renderer_bindings not initialized");
+	sm__assertf(bindings->_end_canary == 0, "renderer_bindings not initialized");
+	// a pipeline object must have been applied
+	sm__assertf(RC.current.pipeline.id != INVALID_HANDLE, "current.pipeline.id not set");
+	struct renderer_pipeline *pip = renderer_pipeline_at(RC.current.pipeline);
+	sm__assertf(pip != 0, "renderer_apply_bindings: currently applied pipeline object no longer alive");
+	sm__assertf(pip->shader.id != INVALID_HANDLE, "current.pipeline.shader not set");
+
+	struct renderer_shader *shader = renderer_shader_at(pip->shader);
+
+	for (u32 i = 0; i < shader->attributes_count; ++i)
+	{
+		struct shader_attribute *shad_attr = shader->attributes + i;
+
+		b32 found = 0;
+		for (u32 j = 0; j < MAX_BUFFER_SLOTS; ++j)
+		{
+			struct buffer_slot *abind = bindings->buffers + j;
+			if (str8_eq(abind->name, shad_attr->name))
+			{
+				sm__assertf(abind->name.size > 0, "bindings->vertex_buffer.name not set");
+				sm__assertf(
+				    abind->buffer.id != INVALID_HANDLE, "bindings->vertex_buffer.buffer not set");
+				struct renderer_buffer *buf = renderer_buffer_at(abind->buffer);
+				sm__assertf(buf != 0, "bindings->vertex_buffers[i]: vertex buffer no longer alive");
+
+				found = 1;
+				break;
+			}
+		}
+		sm__assertf(found, "bindings->vertex_buffer not found");
+	}
+
+	if (bindings->index_buffer.id != INVALID_HANDLE)
+	{
+		// buffer in index-buffer-slot must be of type BUFFERTYPE_INDEXBUFFER
+		struct renderer_buffer *buf = renderer_buffer_at(bindings->index_buffer);
+		sm__assertf(buf != 0, "bindings->index_buffer: index buffer no longer alive");
+	}
+
+	for (u32 i = 0; i < shader->uniforms_count; ++i)
+	{
+		struct shader_uniform *shad_uni = shader->uniforms + i;
+
+		b32 found = 0;
+		for (u32 j = 0; j < MAX_UNIFORM_SLOTS; ++j)
+		{
+			struct uniform_const *abind = bindings->uniforms + j;
+			if (str8_eq(abind->name, shad_uni->name))
+			{
+				sm__assertf(abind->name.size > 0, "bindings->uniform.name not set");
+				sm__assertf(abind->data, "bindings->uniform.data not set");
+				sm__assertf(abind->type > SHADER_TYPE_INVALID && abind->type < SHADER_TYPE_MAX,
+				    "bindings->uniform.type invalid value");
+
+				found = 1;
+				break;
+			}
+		}
+		sm__assertf(found, "bindings->uniform not found");
+	}
+
+	for (u32 i = 0; i < shader->samplers_count; ++i)
+	{
+		struct shader_sampler *shad_sampler = shader->samplers + i;
+
+		b32 found = 0;
+		for (u32 j = 0; j < MAX_TEXTURE_SLOTS; ++j)
+		{
+			struct texture_slot *bind = bindings->textures + j;
+			if (str8_eq(bind->name, shad_sampler->name))
+			{
+				sm__assertf(bind->name.size > 0, "bindings->texture.name not set");
+				sm__assertf(bind->texture.id != INVALID_HANDLE, "bindings->texture.texture not set");
+				sm__assertf(bind->sampler.id != INVALID_HANDLE, "bindings->texture.sampler not set");
+				found = 1;
+				break;
+			}
+		}
+		sm__assertf(found, "bindings->texture not found");
+	}
+
+	return 1;
+#endif
+}
+
+static struct renderer_bindings
+sm__renderer_bindings_defaults(const struct renderer_bindings *desc)
+{
+	struct renderer_bindings result;
+
+	result = *desc;
+
+	for (u32 i = 0; i < MAX_UNIFORM_SLOTS; ++i)
+	{
+		struct uniform_const *ubind = result.uniforms + i;
+		ubind->count = (ubind->count == 0) ? 1 : ubind->count;
+	}
+
+	return (result);
+}
+
+void
+renderer_bindings_apply(struct renderer_bindings *bindings)
+{
+	sm__assert(bindings);
+
+	if (!sm__renderer_bindings_validate(bindings))
+	{
+		return;
+	}
+
+	struct renderer_bindings bind = sm__renderer_bindings_defaults(bindings);
+
+	struct renderer_shader *current_shd = renderer_shader_at(RC.current.shader);
+	struct renderer_pipeline *current_pip = renderer_pipeline_at(RC.current.pipeline);
+
+	struct texture_slot rearranged_textures[MAX_TEXTURE_SLOTS] = {0};
+	for (u32 slot = 0; slot < MAX_TEXTURE_SLOTS; ++slot)
+	{
+		struct texture_slot *unit = bind.textures + slot;
+		if (unit->name.size == 0)
+		{
+			continue;
+		}
+		i32 loc = sm__renderer_shader_get_sampler_slot(current_shd, unit->name, 1);
+		sm__assert(loc < MAX_TEXTURE_SLOTS);
+
+		rearranged_textures[loc] = *unit;
+	}
+
+	for (u32 slot = 0; slot < MAX_TEXTURE_SLOTS; ++slot)
+	{
+		struct texture_slot *selected = rearranged_textures + slot;
+		struct texture_slot *current = RC.current.gl.textures + slot;
+
+		if (selected->texture.id != current->texture.id)
+		{
+			glCall(glActiveTexture(GL_TEXTURE0 + slot));
+			if (selected->texture.id == INVALID_HANDLE)
+			{
+				glCall(glDisable(GL_TEXTURE_2D));
+				glCall(glBindTexture(GL_TEXTURE_2D, 0));
+			}
+			else
+			{
+				if (current->texture.id == INVALID_HANDLE)
+				{
+					glCall(glEnable(GL_TEXTURE_2D));
+				}
+				struct renderer_texture *texture_at = renderer_texture_at(selected->texture);
+				glCall(glBindTexture(GL_TEXTURE_2D, texture_at->gl_handle));
+			}
+
+			current->texture = selected->texture;
+		}
+
+		if (selected->sampler.id != current->sampler.id)
+		{
+			if (selected->sampler.id == INVALID_HANDLE)
+			{
+				glCall(glBindSampler(slot, 0));
+			}
+			else
+			{
+				struct renderer_sampler *sampler_at = renderer_sampler_at(selected->sampler);
+				glCall(glBindSampler(slot, sampler_at->gl_handle));
+			}
+
+			current->sampler = selected->sampler;
+		}
+
+		if (!str8_eq(selected->name, current->name))
+		{
+			// TODO: must copy?
+			current->name = selected->name;
+		}
+	}
+
+	struct buffer_slot rearranged_buffers[MAX_BUFFER_SLOTS] = {0};
+	for (u32 i = 0; i < MAX_BUFFER_SLOTS; ++i)
+	{
+		struct buffer_slot *buf = bind.buffers + i;
+		if (buf->name.size == 0)
+		{
+			continue;
+		}
+		i32 loc = sm__renderer_shader_get_attribute_slot(current_shd, buf->name, 1);
+		sm__assert(loc < MAX_BUFFER_SLOTS);
+
+		rearranged_buffers[loc] = *buf;
+	}
+
+	for (u32 slot = 0; slot < MAX_BUFFER_SLOTS; ++slot)
+	{
+		struct buffer_slot *selected = rearranged_buffers + slot;
+		struct buffer_slot *current = RC.current.gl.buffers + slot;
+		const struct gl__vertex_attributes *gl_attr = current_pip->attrs + slot;
+
+		if (selected->buffer.id != current->buffer.id)
+		{
+			if (selected->buffer.id == INVALID_HANDLE)
+			{
+				glCall(glDisableVertexAttribArray(slot));
+			}
+			else
+			{
+				if (current->buffer.id == INVALID_HANDLE)
+				{
+					glCall(glEnableVertexAttribArray(slot));
+				}
+				struct renderer_buffer *buf = renderer_buffer_at(selected->buffer);
+				sm__renderer_buffer_bind(GL_ARRAY_BUFFER, buf->gl_handle);
+				glCall(glVertexAttribPointer(slot, (GLint)gl_attr->size, (GLenum)gl_attr->type,
+				    (GLboolean)gl_attr->normalized, gl_attr->stride,
+				    (const GLvoid *)(GLintptr)gl_attr->offset));
+			}
+
+			current->buffer = selected->buffer;
+		}
+
+		if (!str8_eq(selected->name, current->name))
+		{
+			current->name = selected->name;
+		}
+	}
+
+	if (RC.current.gl.index_buffer.id != bind.index_buffer.id)
+	{
+		if (bind.index_buffer.id != INVALID_HANDLE)
+		{
+			struct renderer_buffer *buf = renderer_buffer_at(bind.index_buffer);
+			// glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buf->gl_handle));
+			sm__renderer_buffer_bind(GL_ELEMENT_ARRAY_BUFFER, buf->gl_handle);
+
+			RC.current.gl.index_buffer = bind.index_buffer;
+		}
+		else
+		{
+			if (RC.current.gl.index_buffer.id != INVALID_HANDLE)
+			{
+				// glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
+				sm__renderer_buffer_bind(GL_ELEMENT_ARRAY_BUFFER, 0);
+			}
+			RC.current.gl.index_buffer.id = INVALID_HANDLE;
+		}
+	}
+
+	for (u32 i = 0; i < current_shd->uniforms_count; ++i)
+	{
+		struct shader_uniform *current = current_shd->uniforms + i;
+
+		b32 found = 0;
+		for (u32 u = 0; u < MAX_UNIFORM_SLOTS; ++u)
+		{
+			struct uniform_const *selected = bind.uniforms + u;
+			if (str8_eq(selected->name, current->name))
+			{
+				u32 bs = gl__ctable_type_size[selected->type];
+				sm__assert(selected->count >= 1 && selected->count <= current->size);
+				sm__assert(selected->type == current->type);
+
+				if (memcmp(current->data, selected->data, bs * selected->count))
+				{
+					memcpy(current->data, selected->data, bs * selected->count);
+					gl__renderer_set_uniform(
+					    current->location, current->size, current->type, current->data);
+				}
+
+				found = 1;
+				break;
+			}
+		}
+
+		sm__assertf(found, "uniform not found in shader");
+	}
+}
+
+static void
+sm__before_draw(void)
+{
+	// clang-format off
+	log_trace(str8_from("* shader  : {u3d}"), RC.current.shader.id);
+	log_trace(str8_from("* pipeline: {u3d}"), RC.current.pipeline.id);
+	log_trace(str8_from("* pass    : {u3d}"), RC.current.pass.id);
+	log_trace(str8_from("	- pass width  : {u3d}"), RC.current.pass_width);
+	log_trace(str8_from("	- pass height : {u3d}"), RC.current.pass_height);
+	log_trace(str8_from("	- enable      : {b}"), (b8)RC.current.in_pass);
+	log_trace(str8_from("* gl      :"));
+	log_trace(str8_from("	- default_vao : {u3d}"), RC.current.gl.default_vao);
+	log_trace(str8_from("	- default_vbo : {u3d}"), RC.current.gl.default_vbo);
+	log_trace(str8_from("	- default_fbo : {u3d}"), RC.current.gl.default_fbo);
+	log_trace(str8_from("	* blend       :"));
+	log_trace(str8_from("		- enable      : {b}"), state_bool_to_b8(RC.current.gl.blend.enable));
+	log_trace(str8_from("		- mode        : {s}"), sm__ctable_blend_mode_str8[RC.current.gl.blend.mode]);
+	log_trace(str8_from("	* depth       :"));
+	log_trace(str8_from("		- enable      : {b}"), state_bool_to_b8(RC.current.gl.depth.enable));
+	log_trace(str8_from("		- depth_func  : {s}"), sm__ctable_depth_func_str8[RC.current.gl.depth.depth_func]);
+	log_trace(str8_from("	* rasterazer  :"));
+	log_trace(str8_from("		- scissor     : {b}"), state_bool_to_b8(RC.current.gl.rasterizer.scissor));
+	log_trace(str8_from("		- line_width  : {f}"), RC.current.gl.rasterizer.line_width);
+	log_trace(str8_from("		- cull_enable : {b}"), state_bool_to_b8(RC.current.gl.rasterizer.cull_enable));
+	log_trace(str8_from("		- cull_enable : {s}"), sm__ctable_cull_mode_str8[RC.current.gl.rasterizer.cull_mode]);
+	log_trace(str8_from("		- winding_mode: {s}"), sm__ctable_winding_mode_str8[RC.current.gl.rasterizer.winding_mode]);
+	log_trace(str8_from("		- polygon_mode: {s}"), sm__cable_polygon_mode_str8[RC.current.gl.rasterizer.polygon_mode]);
+
+	log_trace(str8_from("	* textures    :"));
+	for (u32 i = 0; i < MAX_TEXTURE_SLOTS; ++i)
+	{
+	struct texture_slot *slot = RC.current.gl.textures +i;
+	if (slot->name.size == 0)
+	{
+		log_trace(str8_from("		- [{u3d}] EMPTY"), i);
+	}
+	else
+	{
+		log_trace(str8_from("		- [{u3d}] {s}, texture: {u3d}, sampler: {u3d}"), i, slot->name, slot->texture.id, slot->sampler.id);
+	}
+	}
+
+
+	log_trace(str8_from("	* buffers     :"));
+	for (u32 i = 0; i < MAX_TEXTURE_SLOTS; ++i)
+	{
+	struct buffer_slot *slot = RC.current.gl.buffers +i;
+	if (slot->name.size == 0)
+	{
+		log_trace(str8_from("		- [{u3d}] EMPTY"), i);
+	}
+	else
+	{
+		log_trace(str8_from("		- [{u3d}] {s}, buffer: {u3d}"), i, slot->name, slot->buffer.id);
+	}
+	}
+	log_trace(str8_from("	* index buffer: "));
+	log_trace(str8_from("		- [0] {u3d}"), RC.current.gl.index_buffer.id);
+
+	struct renderer_pipeline *pip = renderer_pipeline_at(RC.current.pipeline);
+
+	log_trace(str8_from("	* vertex attr :"));
+	for (u32 i = 0; i < MAX_TEXTURE_SLOTS; ++i)
+	{
+		struct gl__vertex_attributes *attr = pip->attrs + i;
+		log_trace(str8_from("		- [{u3d}] size: {u8d}, type: {u32}, norm: {b}, offset: {i3d}"), i, attr->size, attr->type, (b8)attr->normalized, attr->offset);
+	}
+
+	// clang-format on
+}
+
+void
+renderer_draw(u32 num_elements)
+{
+	// sm__before_draw();
+	if (RC.current.gl.index_buffer.id != INVALID_HANDLE)
+	{
+		glCall(glDrawElements(GL_TRIANGLES, num_elements, GL_UNSIGNED_INT, 0));
+	}
+	else
+	{
+		glCall(glDrawArrays(GL_TRIANGLES, 0, num_elements));
+	}
+}
 
 static void
 sm__renderer_default_state(void)
 {
 	// Blending mode
-	RC.state.current_blend = (struct blend_state){.enable = STATE_TRUE, .mode = BLEND_MODE_ALPHA};
-	glCall(glEnable(GL_BLEND));
-	gl__set_blend_mode(RC.state.current_blend.mode);
+	RC.current.gl.blend = (struct blend_state){.enable = STATE_FALSE, .mode = BLEND_MODE_ALPHA};
+	glCall(glDisable(GL_BLEND));
+	gl__renderer_pipeline_set_blend_mode(RC.current.gl.blend.mode);
 
 	// Depth testing
-	RC.state.current_depth = (struct depth_state){.enable = STATE_TRUE, .depth_func = DEPTH_FUNC_LEQUAL};
-	glCall(glEnable(GL_DEPTH_TEST));
+	RC.current.gl.depth = (struct depth_state){.enable = STATE_FALSE, .depth_func = DEPTH_FUNC_LEQUAL};
+	glCall(glDisable(GL_DEPTH_TEST));
 	glCall(glDepthFunc(GL_LEQUAL));
 
 	// Rasterizer
-	RC.state.current_rasterizer = (struct rasterizer_state){
+	RC.current.gl.rasterizer = (struct rasterizer_state){
 	    .cull_enable = STATE_TRUE,
 	    .cull_mode = CULL_MODE_BACK,
 
@@ -822,1462 +2887,35 @@ sm__renderer_default_state(void)
 	glCall(glLineWidth(1.0f));
 }
 
-static void
-sm__renderer_commit_shader(void)
-{
-	if (RC.state.current_shader != RC.state.selected_shader)
-	{
-		struct shader_resource *shader = RC.state.selected_shader;
-
-		if (shader == 0) { glCall(glUseProgram(0)); }
-		else { glCall(glUseProgram(shader->program)); }
-
-		RC.state.current_shader = shader;
-	}
-}
-
-static void
-sm__renderer_commit_uniforms(void)
-{
-	for (u32 i = 0; i < RC.state.current_shader->uniforms_count; ++i)
-	{
-		struct shader_uniform *uni = RC.state.current_shader->uniforms + i;
-		{
-			if (uni->dirty)
-			{
-				gl__set_uniform(uni->location, uni->size, uni->type, uni->data);
-				uni->dirty = false;
-			}
-		}
-	}
-}
-
-static void
-sm__renderer_commit_textures(void)
-{
-	for (uint i = 0; i < MAX_TEXTUREUNIT; ++i)
-	{
-		struct resource *selected_resource = RC.state.selected_textures[i];
-		struct resource *current_resource = RC.state.current_textures[i];
-
-		if (selected_resource != current_resource)
-		{
-			glCall(glActiveTexture(GL_TEXTURE0 + i));
-			if (selected_resource == 0)
-			{
-				glCall(glDisable(GL_TEXTURE_2D));
-				glCall(glBindTexture(GL_TEXTURE_2D, 0));
-			}
-			else
-			{
-				if (current_resource == 0) { glCall(glEnable(GL_TEXTURE_2D)); }
-				// else if (textures[texture].glTarget != textures[currTex].glTarget)
-				// {
-				// 	glDisable(textures[currTex].glTarget);
-				// 	glEnable(textures[texture].glTarget);
-				// }
-				struct image_resource *selected = selected_resource->image_data;
-				glCall(glBindTexture(GL_TEXTURE_2D, selected->texture_handle));
-			}
-
-			RC.state.current_textures[i] = RC.state.selected_textures[i];
-		}
-	}
-}
-
-static void
-sm__renderer_commit_blend(void)
-{
-	if (RC.state.dirty & DIRTY_BLEND)
-	{
-		struct blend_state state = RC.state.selected_blend;
-
-		if (state.enable)
-		{
-			if (state.enable == STATE_FALSE)
-			{
-				if (RC.state.current_blend.enable == STATE_TRUE)
-				{
-					glCall(glDisable(GL_BLEND));
-					RC.state.current_blend.enable = state.enable;
-				}
-			}
-			else
-			{
-				if (RC.state.current_blend.enable == STATE_FALSE)
-				{
-					glCall(glEnable(GL_BLEND));
-					RC.state.current_blend.enable = state.enable;
-				}
-
-				if (state.mode && (state.mode != RC.state.current_blend.mode))
-				{
-					sm__assert(state.mode < SM__BLEND_MODE_MAX);
-					gl__set_blend_mode(state.mode);
-					RC.state.current_blend.mode = state.mode;
-				}
-			}
-		}
-
-		RC.state.dirty &= ~(u32)DIRTY_BLEND;
-	}
-}
-
-static void
-sm__renderer_commit_depth(void)
-{
-	if (RC.state.dirty & DIRTY_DEPTH)
-	{
-		struct depth_state state = RC.state.selected_depth;
-
-		if (state.enable)
-		{
-			if (state.enable == STATE_FALSE)
-			{
-				if (RC.state.current_depth.enable == STATE_TRUE)
-				{
-					glCall(glDisable(GL_DEPTH_TEST));
-					RC.state.current_depth.enable = state.enable;
-				}
-			}
-			else
-			{
-				if (RC.state.current_depth.enable == STATE_FALSE)
-				{
-					glCall(glEnable(GL_DEPTH_TEST));
-					RC.state.current_depth.enable = state.enable;
-				}
-
-				if (state.depth_func && (RC.state.current_depth.depth_func != state.depth_func))
-				{
-					static GLenum ctable_depth_func[] = {
-					    [DEPTH_FUNC_NEVER] = GL_NEVER,
-					    [DEPTH_FUNC_LESS] = GL_LESS,
-					    [DEPTH_FUNC_EQUAL] = GL_EQUAL,
-					    [DEPTH_FUNC_LEQUAL] = GL_LEQUAL,
-					    [DEPTH_FUNC_GREATER] = GL_GREATER,
-					    [DEPTH_FUNC_NOTEQUAL] = GL_NOTEQUAL,
-					    [DEPTH_FUNC_GEQUAL] = GL_GEQUAL,
-					    [DEPTH_FUNC_ALWAYS] = GL_ALWAYS,
-					};
-
-					glCall(glDepthFunc(ctable_depth_func[state.depth_func]));
-					RC.state.current_depth.depth_func = state.depth_func;
-				}
-			}
-		}
-
-		RC.state.dirty &= ~(u32)DIRTY_DEPTH;
-	}
-}
-
-static void
-sm__renderer_commit_rasterizer(void)
-{
-	if (RC.state.dirty & DIRTY_RASTERIZER)
-	{
-		struct rasterizer_state state = RC.state.selected_rasterizer;
-
-		// Culling
-		if (state.cull_enable)
-		{
-			if (state.cull_enable == STATE_FALSE)
-			{
-				if (RC.state.current_rasterizer.cull_enable == STATE_TRUE)
-				{
-					glCall(glDisable(GL_CULL_FACE));
-					RC.state.current_rasterizer.cull_enable = state.cull_enable;
-				}
-			}
-			else
-			{
-				if (RC.state.current_rasterizer.cull_enable == STATE_FALSE)
-				{
-					glCall(glEnable(GL_CULL_FACE));
-					RC.state.current_rasterizer.cull_enable = state.cull_enable;
-				}
-
-				if (state.cull_mode && (RC.state.current_rasterizer.cull_mode != state.cull_mode))
-				{
-					sm__assert(state.cull_mode < SM__CULL_MODE_MAX);
-					static GLenum ctable_cull[] = {
-					    [CULL_MODE_FRONT] = GL_FRONT,
-					    [CULL_MODE_BACK] = GL_BACK,
-					    [CULL_MODE_FRONT_AND_BACK] = GL_FRONT_AND_BACK,
-					};
-					glCall(glCullFace(ctable_cull[state.cull_mode]));
-					RC.state.current_rasterizer.cull_mode = state.cull_mode;
-				}
-			}
-		}
-
-		// Winding mode
-		if (state.winding_mode && (RC.state.current_rasterizer.winding_mode != state.winding_mode))
-		{
-			sm__assert(state.winding_mode < SM__WINDING_MODE_MAX);
-			static GLenum ctable_winding[] = {
-			    [WINDING_MODE_CLOCK_WISE] = GL_CW,
-			    [WINDING_MODE_COUNTER_CLOCK_WISE] = GL_CCW,
-			};
-
-			glCall(glFrontFace(ctable_winding[state.winding_mode]));
-			RC.state.current_rasterizer.winding_mode = state.winding_mode;
-		}
-
-		// Polygon mode
-		if (state.polygon_mode && (RC.state.current_rasterizer.polygon_mode != state.polygon_mode))
-		{
-			sm__assert(state.polygon_mode < SM__POLYGON_MODE_MAX);
-			static GLenum ctable_polygon[] = {
-			    [POLYGON_MODE_POINT] = GL_POINT,
-			    [POLYGON_MODE_LINE] = GL_LINE,
-			    [POLYGON_MODE_FILL] = GL_FILL,
-			};
-			glCall(glPolygonMode(GL_FRONT_AND_BACK, ctable_polygon[state.polygon_mode]));
-			RC.state.current_rasterizer.polygon_mode = state.polygon_mode;
-		}
-
-		// Scissor
-		if (state.scissor)
-		{
-			if (state.scissor == STATE_TRUE)
-			{
-				if (RC.state.current_rasterizer.scissor == STATE_FALSE)
-				{
-					glCall(glEnable(GL_SCISSOR_TEST));
-					RC.state.current_rasterizer.scissor = state.scissor;
-				}
-			}
-			else
-			{
-				if (RC.state.current_rasterizer.scissor == STATE_TRUE)
-				{
-					glCall(glDisable(GL_SCISSOR_TEST));
-					RC.state.current_rasterizer.scissor = state.scissor;
-				}
-			}
-		}
-
-		if (state.line_width && RC.state.current_rasterizer.line_width != state.line_width)
-		{
-			glCall(glLineWidth(state.line_width));
-			RC.state.current_rasterizer.line_width = state.line_width;
-		}
-
-		RC.state.dirty &= ~(u32)DIRTY_RASTERIZER;
-	}
-}
-
-void
-renderer_state_commit(void)
-{
-	sm__renderer_commit_shader();
-	sm__renderer_commit_uniforms();
-	sm__renderer_commit_textures();
-	sm__renderer_commit_blend();
-	sm__renderer_commit_depth();
-	sm__renderer_commit_rasterizer();
-}
-
-void
-renderer_state_clear(void)
-{
-	RC.state.selected_shader = 0;
-
-	for (u32 i = 0; i < MAX_TEXTUREUNIT; ++i) { RC.state.selected_textures[i] = RC.state.default_texture_ref; }
-}
-
-void
-renderer_state_set_defaults(void)
-{
-	RC.state.current_shader = 0;
-
-	for (u32 i = 0; i < MAX_TEXTUREUNIT; ++i) { RC.state.current_textures[i] = 0; }
-}
-
-u32
-renderer_get_texture_size(u32 width, u32 height, u32 pixel_format)
-{
-	u32 result = 0; // Size in bytes
-	u32 bpp = 0;	// Bits per pixel
-	switch (pixel_format)
-	{
-	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_ALPHA:
-	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_GRAYSCALE: bpp = 8; break;
-	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA:
-	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_R5G6B5:
-	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_R5G5B5A1:
-	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_R4G4B4A4: bpp = 16; break;
-	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8: bpp = 32; break;
-	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_R8G8B8: bpp = 24; break;
-	default: sm__unreachable(); break;
-	}
-
-	result = width * height * bpp / 8; // Total data size in bytes
-
-	return (result);
-}
-
-void
-renderer_upload_texture(image_resource *image)
-{
-	gl__upload_texture(image);
-}
-
-void
-renderer_texture_add(str8 texture_name)
-{
-	struct resource *resource = resource_get_by_name(texture_name);
-	sm__assert(resource);
-	sm__assert(resource->type == RESOURCE_IMAGE);
-
-	if (resource->image_data->texture_handle) { return; }
-
-	resource = resource_make_reference(resource);
-	gl__upload_texture(resource->image_data);
-
-	array_push(&RC.arena, RC.state.textures, resource);
-}
-
-void
-renderer_texture_set(str8 texture_name, str8 sampler_name)
-{
-	i32 loc = shader_resource_get_sampler_loc(RC.state.selected_shader, sampler_name, true);
-
-	for (u32 i = 0; i < array_len(RC.state.textures); ++i)
-	{
-		struct resource *texture_resource = RC.state.textures[i];
-
-		if (str8_eq(texture_name, texture_resource->name))
-		{
-			RC.state.selected_textures[loc] = texture_resource;
-			return;
-		}
-	}
-
-	RC.state.selected_textures[loc] = RC.state.default_texture_ref;
-	// log_error(str8_from("[{s}] texture not found"), texture_name);
-}
-
-void
-renderer_shader_add(str8 shader_name, str8 vertex, str8 fragment)
-{
-	struct shader_resource *shader = load_shader(shader_name, vertex, fragment);
-	renderer_upload_shader(shader);
-
-	array_push(&RC.arena, RC.state.shaders, shader);
-}
-
-void
-renderer_shader_set(str8 shader_name)
-{
-	// if (str8_eq(shader_name, RC.state.current_shader->name)) { return; }
-
-	for (u32 i = 0; i < array_len(RC.state.shaders); ++i)
-	{
-		struct shader_resource *shader = RC.state.shaders[i];
-		if (str8_eq(shader_name, shader->name))
-		{
-			RC.state.selected_shader = shader;
-			return;
-		}
-	}
-
-	log_error(str8_from("[{s}] shader not found"), shader_name);
-	sm__unreachable();
-}
-
-void
-renderer_shader_set_uniform(str8 name, void *value, u32 size, u32 count)
-{
-	sm__assert(count);
-
-	for (u32 i = 0; i < RC.state.selected_shader->uniforms_count; ++i)
-	{
-		struct shader_uniform *uni = RC.state.selected_shader->uniforms + i;
-
-		if (str8_eq(name, uni->name))
-		{
-			sm__assert(gl__ctable_type_size[uni->type] == size);
-			sm__assert(count >= 1 && count <= uni->size);
-
-			if (memcmp(uni->data, value, size * count))
-			{
-				memcpy(uni->data, value, size * count);
-				uni->dirty = true;
-			}
-			return;
-		}
-	}
-
-	sm__unreachable();
-}
-
-void
-renderer_blend_set(const struct blend_state *blend)
-{
-	if ((blend->enable && RC.state.current_blend.enable != blend->enable) ||
-	    (blend->mode && RC.state.current_blend.mode != blend->mode))
-	{
-		RC.state.selected_blend = *blend;
-		RC.state.dirty |= DIRTY_BLEND;
-	}
-}
-
-void
-renderer_depth_set(const struct depth_state *depth)
-{
-	if ((depth->enable && RC.state.current_depth.enable != depth->enable) ||
-	    (depth->depth_func && RC.state.current_depth.depth_func != depth->depth_func))
-	{
-		RC.state.selected_depth = *depth;
-		RC.state.dirty |= DIRTY_DEPTH;
-	}
-}
-
-void
-renderer_rasterizer_set(const struct rasterizer_state *rasterizer)
-{
-	if (rasterizer->cull_mode && RC.state.current_rasterizer.cull_mode != rasterizer->cull_mode) { goto dirty; }
-	if (rasterizer->cull_enable && RC.state.current_rasterizer.cull_enable != rasterizer->cull_enable)
-	{
-		goto dirty;
-	}
-	if (rasterizer->winding_mode && RC.state.current_rasterizer.winding_mode != rasterizer->winding_mode)
-	{
-		goto dirty;
-	}
-	if (rasterizer->scissor && RC.state.current_rasterizer.scissor != rasterizer->scissor) { goto dirty; }
-	if (rasterizer->polygon_mode && RC.state.current_rasterizer.polygon_mode != rasterizer->polygon_mode)
-	{
-		goto dirty;
-	}
-	if (rasterizer->line_width && RC.state.current_rasterizer.line_width != rasterizer->line_width) { goto dirty; }
-
-	return;
-
-dirty:
-	RC.state.selected_rasterizer = *rasterizer;
-	RC.state.dirty |= DIRTY_RASTERIZER;
-}
-
-void
-renderer_upload_shader(struct shader_resource *shader)
-{
-	if (shader->program == 0)
-	{
-		if (shader->vertex->id == 0) { shader->vertex->id = gl__shader_compile_vert(shader->vertex->vertex); }
-		if (shader->fragment->id == 0)
-		{
-			shader->fragment->id = gl__shader_compile_frag(shader->fragment->fragment);
-		}
-		sm__assert(shader->vertex->id);
-		sm__assert(shader->fragment->id);
-		glCall(shader->program = glCreateProgram());
-		if (!gl__shader_link(shader))
-		{
-			glCall(glDeleteProgram(shader->program));
-			glCall(glDeleteShader(shader->fragment->id));
-			glCall(glDeleteShader(shader->vertex->id));
-			log_error(str8_from("error linking program shader"));
-
-			return;
-		}
-
-		struct arena *arena = resource_get_arena();
-		gl__shader_cache_actives(arena, shader);
-	}
-}
-
-static void
-sm__renderer_load_defaults(void)
-{
-	renderer_shader_add(
-	    str8_from("default"), str8_from("shaders/default.vertex"), str8_from("shaders/default.fragment"));
-
-	for (u32 i = 0; i < array_len(RC.state.shaders); ++i)
-	{
-		struct shader_resource *shader = RC.state.shaders[i];
-		if (str8_eq(shader->name, str8_from("default")))
-		{
-			RC.state.default_shader = shader;
-			break;
-		}
-	}
-
-	struct resource *default_image = resource_get_default_image();
-	array_push(&RC.arena, RC.state.textures, default_image);
-	RC.state.default_texture_ref = *array_last_item(RC.state.textures);
-}
-
-static struct framebuffer
-sm__framebuffer_make(u32 framebuffer_width, u32 framebuffer_height)
-{
-	struct framebuffer result;
-
-	result.width = framebuffer_width;
-	result.height = framebuffer_height;
-
-	glCall(glViewport(0, 0, framebuffer_width, framebuffer_height));
-
-	{
-		// clang-format off
-		static f32 rectangle_vertices[] = 
-		{
-			// Coords    // texCoords
-			 1.0f, -1.0f,  1.0f, 0.0f,
-			-1.0f, -1.0f,  0.0f, 0.0f,
-			-1.0f,  1.0f,  0.0f, 1.0f,
-
-			 1.0f,  1.0f,  1.0f, 1.0f,
-			 1.0f, -1.0f,  1.0f, 0.0f,
-			-1.0f,  1.0f,  0.0f, 1.0f
-		};
-		// clang-format on
-
-		struct shader_resource *framebuffer_shader = load_shader(str8_from("framebuffer"),
-		    str8_from("shaders/framebuffer.vertex"), str8_from("shaders/framebuffer.fragment"));
-		result.screen.shader = framebuffer_shader;
-		renderer_upload_shader(framebuffer_shader);
-
-		glCall(glGenVertexArrays(1, &result.screen.vao));
-		glCall(glBindVertexArray(result.screen.vao));
-
-		glCall(glGenBuffers(1, &result.screen.vbo));
-		glCall(glBindBuffer(GL_ARRAY_BUFFER, result.screen.vbo));
-		glCall(glBufferData(GL_ARRAY_BUFFER, sizeof(rectangle_vertices), &rectangle_vertices, GL_STATIC_DRAW));
-
-		i32 loc = shader_resource_get_attribute_loc(framebuffer_shader, str8_from("a_position"), true);
-		glCall(glEnableVertexAttribArray(loc));
-		glCall(glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(f32), 0));
-
-		loc = shader_resource_get_attribute_loc(framebuffer_shader, str8_from("a_uv"), true);
-		glCall(glEnableVertexAttribArray(loc));
-		glCall(glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(f32), (void *)(2 * sizeof(f32))));
-
-		glCall(glBindVertexArray(0));
-
-		// just in case
-		glCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
-		glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-
-		glCall(glUseProgram(result.screen.shader->program));
-		i32 a_loc = shader_resource_get_sampler_loc(result.screen.shader, str8_from("u_framebuffer"), true);
-		glCall(glUniform1i(a_loc, 0));
-		glCall(glUseProgram(0));
-	}
-
-	// RGBA8 2D texture, 24 bit depth texture, 256x256
-	glCall(glGenTextures(1, &result.color_rt));
-	glCall(glBindTexture(GL_TEXTURE_2D, result.color_rt));
-	glCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
-	glCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
-	glCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
-	glCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
-	// NULL means reserve texture memory, but texels are undefined
-	glCall(
-	    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, result.width, result.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
-	//-------------------------
-	glCall(glGenFramebuffers(1, &result.fbo));
-	glCall(glBindFramebuffer(GL_FRAMEBUFFER, result.fbo));
-	// Attach 2D texture to this FBO
-	glCall(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, result.color_rt, 0));
-	//-------------------------
-	glCall(glGenRenderbuffers(1, &result.depth_rt));
-	glCall(glBindRenderbuffer(GL_RENDERBUFFER, result.depth_rt));
-	glCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, result.width, result.height));
-	//-------------------------
-	// Attach depth buffer to FBO
-	glCall(
-	    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, result.depth_rt));
-
-	//-------------------------
-	// Does the GPU support current FBO configuration?
-	GLenum status;
-	glCall(status = glCheckFramebufferStatus(GL_FRAMEBUFFER));
-	switch (status)
-	{
-	case GL_FRAMEBUFFER_COMPLETE:
-		{
-			log_trace(str8_from("FBO successfully created!"));
-		}
-		break;
-	default:
-		{
-			sm__unreachable();
-		}
-	}
-
-	glCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-
-	return (result);
-}
-
-static void
-sm__framebuffer_release(struct framebuffer *framebuffer)
-{
-	glCall(glDeleteTextures(1, &framebuffer->color_rt));
-	glCall(glDeleteRenderbuffers(1, &framebuffer->depth_rt));
-
-	glCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-	glCall(glDeleteFramebuffers(1, &framebuffer->fbo));
-}
-
-u32
-renderer_get_framebuffer_width(void)
-{
-	u32 result;
-
-	result = RC.framebuffer.width;
-
-	return (result);
-}
-
-u32
-renderer_get_framebuffer_height(void)
-{
-	u32 result;
-
-	result = RC.framebuffer.height;
-
-	return (result);
-}
-
-b8
+b32
 renderer_init(u32 framebuffer_width, u32 framebuffer_height)
 {
-	struct buf m_base = base_memory_begin();
-	RC.mem_renderer = (struct dyn_buf){
-	    .data = m_base.data,
-	    .cap = m_base.size,
-	    .len = 0,
-	};
+	struct buf renderer_base_memory = base_memory_reserve(MB(1));
+	arena_make(&RC.arena, renderer_base_memory);
+	arena_validate(&RC.arena);
 
-	RC.batch = sm__batch_make();
-	RC.framebuffer = sm__framebuffer_make(framebuffer_width, framebuffer_height);
-
-	// init stack matrices
-	glm_mat4_identity_array(&RC.state.stack[0].data, ARRAY_SIZE(RC.state.stack));
-
-	RC.state.modelview = m4_identity();
-	RC.state.projection = m4_identity();
-	RC.state.current_matrix = &RC.state.modelview;
-	RC.state.transform_required = false;
-	RC.state.transform = m4_identity();
-
-	RC.clear_color = cWHITE;
+	// sm__renderer_batch_make(&RC.arena, &RC.batch);
+	sm__renderer_pools_make(&RC.arena, &RC.pools);
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint *)&RC.current.gl.default_fbo);
+	RC.width = framebuffer_width;
+	RC.height = framebuffer_height;
 
 	sm__renderer_default_state();
 	glCall(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 	glCall(glClearDepth(1.0));
 	glCall(glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT));
 
-	base_memory_end(RC.mem_renderer.len);
-
-	struct buf renderer_base_memory = base_memory_reserve(MB(1));
-	arena_make(&RC.arena, renderer_base_memory);
-	arena_validate(&RC.arena);
-
-	array_set_cap(&RC.arena, RC.state.textures, 60);
-	memset(RC.state.textures, 0x0, sizeof(struct resource *) * array_cap(RC.state.textures));
-
-	array_set_cap(&RC.arena, RC.state.shaders, 60);
-	memset(RC.state.shaders, 0x0, sizeof(struct shader_resource *) * array_cap(RC.state.shaders));
-
-	sm__renderer_load_defaults();
-
-	return (true);
+	return (1);
 }
 
 void
 renderer_teardown(void)
 {
-	sm__framebuffer_release(&RC.framebuffer);
-	sm__batch_release(&RC.batch);
+	// sm__framebuffer_release(&RC.framebuffer);
+	// sm__batch_release(&RC.arena, &RC.batch);
 }
-
-void
-renderer_start_frame(void)
-{
-	glCall(glBindFramebuffer(GL_FRAMEBUFFER, RC.framebuffer.fbo));
-	// renderer_on_resize(RC.framebuffer.width, RC.framebuffer.height);
-
-	sm__m4_load_identity();
-
-	renderer_on_resize(RC.framebuffer.width, RC.framebuffer.height);
-}
-
-void
-renderer_finish_frame(void)
-{
-	sm__batch_draw();
-
-	glCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-
-	glCall(glClearColor(1.0f, 1.0f, 1.0f, 1.0f));
-	glCall(glClear(GL_COLOR_BUFFER_BIT));
-	glCall(glViewport(0, 0, core_get_window_width(), core_get_window_height()));
-
-	glCall(glUseProgram(RC.framebuffer.screen.shader->program));
-
-	glCall(glBindVertexArray(RC.framebuffer.screen.vao));
-
-	b8 depth_enabled = RC.state.current_depth.enable;
-	if (depth_enabled) { glCall(glDisable(GL_DEPTH_TEST)); }
-	b8 cull_enabled = RC.state.current_rasterizer.cull_enable;
-	if (cull_enabled) { glCall(glDisable(GL_CULL_FACE)); }
-
-	glCall(glBindTexture(GL_TEXTURE_2D, RC.framebuffer.color_rt));
-	glCall(glDrawArrays(GL_TRIANGLES, 0, 6));
-
-	if (depth_enabled) { glCall(glEnable(GL_DEPTH_TEST)); }
-	if (cull_enabled) { glCall(glEnable(GL_CULL_FACE)); }
-
-	glCall(glBindVertexArray(0));
-	glCall(glUseProgram(0));
-}
-
-#define QUAD_SIZE	 4
-#define INDICES_PER_QUAD 6
-#define VIRTICES	 16384
-
-static struct batch
-sm__batch_make(void)
-{
-	struct batch result = {0};
-
-	struct vertex_buffer vertex_buffer;
-
-	vertex_buffer.element_count = VIRTICES;
-	vertex_buffer.positions = (v3 *)(RC.mem_renderer.data + RC.mem_renderer.len);
-	RC.mem_renderer.len += sizeof(v3) * VIRTICES * QUAD_SIZE;
-
-	vertex_buffer.uvs = (v2 *)(RC.mem_renderer.data + RC.mem_renderer.len);
-	RC.mem_renderer.len += sizeof(v2) * VIRTICES * QUAD_SIZE;
-
-	vertex_buffer.colors = (color *)(RC.mem_renderer.data + RC.mem_renderer.len);
-	RC.mem_renderer.len += sizeof(color) * VIRTICES * QUAD_SIZE;
-
-	vertex_buffer.indices = (u32 *)(RC.mem_renderer.data + RC.mem_renderer.len);
-	RC.mem_renderer.len += sizeof(u32) * VIRTICES * INDICES_PER_QUAD;
-
-	u32 k = 0;
-	for (u32 i = 0; i < (VIRTICES * INDICES_PER_QUAD); i += 6)
-	{
-		vertex_buffer.indices[i] = 4 * k;
-		vertex_buffer.indices[i + 1] = 4 * k + 1;
-		vertex_buffer.indices[i + 2] = 4 * k + 2;
-		vertex_buffer.indices[i + 3] = 4 * k;
-		vertex_buffer.indices[i + 4] = 4 * k + 2;
-		vertex_buffer.indices[i + 5] = 4 * k + 3;
-		k++;
-	}
-
-	struct shader_resource *shader = load_shader(
-	    str8_from("default"), str8_from("shaders/default.vertex"), str8_from("shaders/default.fragment"));
-	RC.state.default_shader = shader;
-	renderer_upload_shader(shader);
-
-	RC.state.default_texture_ref = resource_get_default_image();
-	struct image_resource *default_image = RC.state.default_texture_ref->image_data;
-	if (!default_image->texture_handle) { renderer_upload_texture(default_image); }
-
-	glCall(glGenVertexArrays(1, &vertex_buffer.vao));
-	glCall(glBindVertexArray(vertex_buffer.vao));
-
-	// positions
-	glCall(glGenBuffers(1, &vertex_buffer.vbos[0]));
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer.vbos[0]));
-	glCall(glBufferData(GL_ARRAY_BUFFER, sizeof(v3) * VIRTICES * QUAD_SIZE, 0, GL_DYNAMIC_DRAW));
-
-	i32 loc = shader_resource_get_attribute_loc(RC.state.default_shader, str8_from("a_position"), true);
-	glCall(glEnableVertexAttribArray(loc));
-	glCall(glVertexAttribPointer(loc, 3, GL_FLOAT, false, 0, 0));
-
-	// uvs
-	glCall(glGenBuffers(1, &vertex_buffer.vbos[1]));
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer.vbos[1]));
-	glCall(glBufferData(GL_ARRAY_BUFFER, sizeof(v2) * VIRTICES * QUAD_SIZE, 0, GL_DYNAMIC_DRAW));
-
-	loc = shader_resource_get_attribute_loc(RC.state.default_shader, str8_from("a_uv"), true);
-	glCall(glEnableVertexAttribArray(loc));
-	glCall(glVertexAttribPointer(loc, 2, GL_FLOAT, false, 0, 0));
-
-	// colors
-	glCall(glGenBuffers(1, &vertex_buffer.vbos[2]));
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer.vbos[2]));
-	glCall(glBufferData(GL_ARRAY_BUFFER, sizeof(color) * VIRTICES * QUAD_SIZE, 0, GL_DYNAMIC_DRAW));
-
-	loc = shader_resource_get_attribute_loc(RC.state.default_shader, str8_from("a_color"), true);
-	glCall(glEnableVertexAttribArray(loc));
-	glCall(glVertexAttribPointer(loc, 4, GL_UNSIGNED_BYTE, true, 0, 0));
-
-	// indices
-	glCall(glGenBuffers(1, &vertex_buffer.ebo));
-	glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vertex_buffer.ebo));
-	glCall(glBufferData(
-	    GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * VIRTICES * INDICES_PER_QUAD, vertex_buffer.indices, GL_STATIC_DRAW));
-	glCall(glBindVertexArray(0));
-
-	// just in case
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
-	glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-
-#undef QUAD_SIZE
-#undef INDICES_PER_QUAD
-#undef VIRTICES
-
-	if (vertex_buffer.vao > 0) { log_info(str8_from("verttex buffer loaded successfully to VRAM")); }
-	result.vertex_buffer = vertex_buffer;
-
-	result.draws = (struct draw_call *)(RC.mem_renderer.data + RC.mem_renderer.len);
-	RC.mem_renderer.len += (sizeof(struct draw_call) * MAX_BATCH_DRAW_CALLS);
-
-	for (u32 i = 0; i < MAX_BATCH_DRAW_CALLS; ++i)
-	{
-		result.draws[i].mode = GL_QUADS;
-		result.draws[i].vertex_counter = 0;
-		result.draws[i].vertex_alignment = 0;
-	}
-
-	result.draws_len = 1;
-	result.current_clip_control_depth = RESET_DEPTH_VALUE; // Reset depth value
-
-	return (result);
-}
-
-static void
-sm__batch_release(struct batch *batch)
-{
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
-	glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-	glCall(glBindVertexArray(batch->vertex_buffer.vao));
-
-	i32 loc;
-	loc = shader_resource_get_attribute_loc(RC.state.default_shader, str8_from("a_color"), true);
-	glCall(glDisableVertexAttribArray(loc));
-
-	loc = shader_resource_get_attribute_loc(RC.state.default_shader, str8_from("a_uv"), true);
-	glCall(glDisableVertexAttribArray(loc));
-
-	loc = shader_resource_get_attribute_loc(RC.state.default_shader, str8_from("a_position"), true);
-	glCall(glDisableVertexAttribArray(loc));
-
-	glCall(glBindVertexArray(0));
-	glCall(glDeleteBuffers(ARRAY_SIZE(batch->vertex_buffer.vbos), batch->vertex_buffer.vbos));
-
-	glCall(glDeleteBuffers(1, &batch->vertex_buffer.ebo));
-	glCall(glDeleteVertexArrays(1, &batch->vertex_buffer.vao));
-}
-
-static void
-sm__batch_reset(void)
-{
-	RC.state.vertex_counter = 0;
-	RC.batch.current_clip_control_depth = RESET_DEPTH_VALUE;
-	for (u32 i = 0; i < MAX_BATCH_DRAW_CALLS; ++i)
-	{
-		RC.batch.draws[i].mode = GL_QUADS;
-		RC.batch.draws[i].vertex_counter = 0;
-	}
-	RC.batch.draws_len = 1;
-}
-
-static b8
-sm__batch_overflow(u32 vertices)
-{
-	b8 overflow = false;
-	if (RC.state.vertex_counter + vertices >= RC.batch.vertex_buffer.element_count * 4)
-	{
-		u32 current_mode = RC.batch.draws[RC.batch.draws_len - 1].mode;
-		overflow = true;
-		sm__batch_draw();
-		RC.batch.draws[RC.batch.draws_len - 1].mode = current_mode;
-	}
-	return (overflow);
-}
-
-void
-sm__batch_draw(void)
-{
-	if (RC.state.vertex_counter == 0) { return; }
-
-	glCall(glBindVertexArray(RC.batch.vertex_buffer.vao));
-	u32 v_counter = RC.state.vertex_counter;
-
-	// sub position data
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, RC.batch.vertex_buffer.vbos[0]));
-	glCall(glBufferSubData(GL_ARRAY_BUFFER, 0, v_counter * sizeof(v3), RC.batch.vertex_buffer.positions));
-
-	// sub uv data
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, RC.batch.vertex_buffer.vbos[1]));
-	glCall(glBufferSubData(GL_ARRAY_BUFFER, 0, v_counter * sizeof(v2), RC.batch.vertex_buffer.uvs));
-
-	// sub color data
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, RC.batch.vertex_buffer.vbos[2]));
-	glCall(glBufferSubData(GL_ARRAY_BUFFER, 0, v_counter * sizeof(color), RC.batch.vertex_buffer.colors));
-
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
-
-	// glCall(glUseProgram(RC.state.default_program->program));
-
-	m4 mvp;
-	glm_mat4_mul(RC.state.projection.data, RC.state.modelview.data, mvp.data);
-	renderer_shader_set_uniform(str8_from("u_pvm"), &mvp, sizeof(m4), 1);
-
-	renderer_state_commit();
-	for (u32 i = 0, vertex_offset = 0; i < RC.batch.draws_len; ++i)
-	{
-		struct draw_call *d_call = RC.batch.draws + i;
-		if (d_call->mode == GL_LINES || d_call->mode == GL_TRIANGLES)
-		{
-			glCall(glDrawArrays(d_call->mode, (i32)vertex_offset, (i32)d_call->vertex_counter));
-		}
-		else
-		{
-			glCall(glDrawElements(GL_TRIANGLES, (i32)(d_call->vertex_counter / 4 * 6), GL_UNSIGNED_INT,
-			    (void *)(vertex_offset / 4 * 6 * sizeof(u32))));
-		}
-		vertex_offset += (d_call->vertex_counter + d_call->vertex_alignment);
-	}
-
-	sm__batch_reset();
-}
-
-void
-renderer_batch3D_begin(camera_component *camera)
-{
-	sm__batch_draw();
-
-	renderer_state_clear();
-	renderer_shader_set(str8_from("default"));
-
-	sm__m4_mode(MATRIX_MODE_PROJECTION);
-	sm__m4_push();
-	sm__m4_load_identity();
 
 #if 0
-	f32 top = 0.1f * tanf(glm_rad(camera->fov * 05));
-	f32 right = top * camera->aspect_ratio;
-
-	glm_frustum(-right, right, -top, top, 0.1f, 100.f, proj.data);
-	glm_lookat(camera->position.data, camera->target.data, camera->up.data, view.data);
-#endif
-
-	sm__m4_mul(camera->projection.data);
-
-	sm__m4_mode(MATRIX_MODE_MODEL_VIEW);
-	sm__m4_load_identity();
-
-	sm__m4_mul(camera->view.data);
-}
-
-void
-renderer_batch3D_end(void)
-{
-	sm__batch_draw(); // Update and draw internal render batch
-
-	sm__m4_mode(MATRIX_MODE_PROJECTION);
-	sm__m4_pop(); // Restore previous matrix (projection) from stack
-
-	sm__m4_mode(MATRIX_MODE_MODEL_VIEW);
-	sm__m4_load_identity();
-}
-
-void
-renderer_batch_begin(void)
-{
-	sm__batch_draw();
-
-	sm__m4_load_identity();
-
-	renderer_state_clear();
-	renderer_shader_set(str8_from("default"));
-}
-
-void
-renderer_batch_sampler_set(str8 sampler)
-{
-	renderer_texture_set(sampler, str8_from("u_tex0"));
-}
-
-void
-renderer_batch_end(void)
-{
-	sm__batch_draw();
-
-	sm__m4_load_identity();
-}
-
-static void
-sm__renderer_begin(u32 mode)
-{
-	const u32 draw_counter = RC.batch.draws_len;
-	struct draw_call *d_call = &RC.batch.draws[draw_counter - 1];
-
-	if (d_call->mode == mode) { return; }
-
-	if (d_call->vertex_counter > 0)
-	{
-		if (d_call->mode == GL_LINES)
-		{
-			d_call->vertex_alignment =
-			    ((d_call->vertex_counter < 4) ? d_call->vertex_counter : d_call->vertex_counter % 4);
-		}
-		else if (d_call->mode == GL_TRIANGLES)
-		{
-			d_call->vertex_alignment =
-			    ((d_call->vertex_counter < 4) ? 1 : (4 - (d_call->vertex_counter % 4)));
-		}
-		else { d_call->vertex_alignment = 0; }
-		if (!sm__batch_overflow(d_call->vertex_alignment))
-		{
-			RC.state.vertex_counter += d_call->vertex_alignment;
-			RC.batch.draws_len++;
-			// draw_counter = (u32)SM_ARRAY_LEN(RC.batch.draws) + 1;
-		}
-	}
-	if (RC.batch.draws_len >= MAX_BATCH_DRAW_CALLS) { sm__batch_draw(); }
-
-	d_call = &RC.batch.draws[RC.batch.draws_len - 1];
-	d_call->mode = mode;
-	d_call->vertex_counter = 0;
-}
-
-static void
-sm__renderer_end(void)
-{
-	RC.batch.current_clip_control_depth += (1.0f / 20000.0f);
-	if (RC.state.vertex_counter >= (RC.batch.vertex_buffer.element_count * 4 - 4))
-	{
-		for (i32 i = (i32)RC.state.stack_counter; i >= 0; --i) { sm__m4_pop(); }
-		sm__batch_draw();
-	}
-}
-
-static void
-sm__position_v3(v3 position)
-{
-	struct vertex_buffer *v_buf = &RC.batch.vertex_buffer;
-	if (RC.state.vertex_counter > v_buf->element_count * 4 - 4)
-	{
-		str8_println(str8_from("batch elements overflow"));
-		return;
-	}
-
-	v3 transformed_position = position;
-	if (RC.state.transform_required)
-	{
-		glm_mat4_mulv3(RC.state.transform.data, position.data, 1.0f, transformed_position.data);
-	}
-
-	glm_vec3_copy(transformed_position.data, v_buf->positions[RC.state.vertex_counter].data);
-	glm_vec2_copy(RC.state.v_uv.data, v_buf->uvs[RC.state.vertex_counter].data);
-	v_buf->colors[RC.state.vertex_counter] = RC.state.v_color;
-
-	RC.state.vertex_counter++;
-	RC.batch.draws[RC.batch.draws_len - 1].vertex_counter++;
-}
-
-static void
-sm__position_3f(f32 x, f32 y, f32 z)
-{
-	sm__position_v3(v3_new(x, y, z));
-}
-
-static void
-sm__position_v2(v2 position)
-{
-	sm__position_v3(v3_new(position.x, position.y, RC.batch.current_clip_control_depth));
-}
-
-static void
-sm__position_2f(f32 x, f32 y)
-{
-	sm__position_v3(v3_new(x, y, RC.batch.current_clip_control_depth));
-}
-
-static void
-sm__uv_v2(v2 uv)
-{
-	glm_vec2_copy(uv.data, RC.state.v_uv.data);
-}
-
-static void
-sm__uv_2f(f32 x, f32 y)
-{
-	RC.state.v_uv.x = x;
-	RC.state.v_uv.y = y;
-}
-
-static void
-sm__color_v4(v4 c)
-{
-	RC.state.v_color = color_from_v4(c);
-}
-
-static void
-sm__color_hex(u32 c)
-{
-	RC.state.v_color = color_from_hex(c);
-}
-
-static void
-sm__color_4ub(u8 r, u8 g, u8 b, u8 a)
-{
-	RC.state.v_color.r = r;
-	RC.state.v_color.g = g;
-	RC.state.v_color.b = b;
-	RC.state.v_color.a = a;
-}
-
-static void
-sm__color(color c)
-{
-	RC.state.v_color = c;
-}
-
-static void
-sm__m4_load_identity(void)
-{
-	*RC.state.current_matrix = m4_identity();
-}
-
-static void
-sm__m4_mul(mat4 mat)
-{
-	glm_mat4_mul(RC.state.current_matrix->data, mat, RC.state.current_matrix->data);
-}
-
-static void
-sm__renderer_trs_mul(trs transform)
-{
-	m4 mat = trs_to_m4(transform);
-	glm_mat4_mul(RC.state.current_matrix->data, mat.data, RC.state.current_matrix->data);
-}
-
-static void
-sm__renderer_translate(v3 translate)
-{
-	glm_translate(RC.state.current_matrix->data, translate.data);
-}
-
-static void
-sm__renderer_rotate(v4 rotate)
-{
-	glm_quat_rotate(RC.state.current_matrix->data, rotate.data, RC.state.current_matrix->data);
-}
-
-static void
-sm__renderer_scale(v3 scale)
-{
-	glm_scale(RC.state.current_matrix->data, scale.data);
-}
-
-static void
-sm__m4_mode(enum matrix_mode mode)
-{
-	if (mode == MATRIX_MODE_PROJECTION) RC.state.current_matrix = &RC.state.projection;
-	else if (mode == MATRIX_MODE_MODEL_VIEW) RC.state.current_matrix = &RC.state.modelview;
-	RC.state.matrix_mode = mode;
-}
-
-static void
-sm__m4_pop(void)
-{
-	if (RC.state.stack_counter > 0)
-	{
-		m4 m = RC.state.stack[RC.state.stack_counter - 1];
-		*RC.state.current_matrix = m;
-		RC.state.stack_counter--;
-	}
-	if (RC.state.stack_counter == 0 && RC.state.matrix_mode == MATRIX_MODE_MODEL_VIEW)
-	{
-		RC.state.current_matrix = &RC.state.modelview;
-		RC.state.transform_required = false;
-	}
-}
-
-static void
-sm__m4_push(void)
-{
-	if (RC.state.stack_counter >= 32)
-	{
-		log_error(str8_from("matrix stack overflow"));
-		return;
-	}
-	if (RC.state.matrix_mode == MATRIX_MODE_MODEL_VIEW)
-	{
-		RC.state.transform_required = true;
-		RC.state.current_matrix = &RC.state.transform;
-	}
-	RC.state.stack[RC.state.stack_counter] = *RC.state.current_matrix;
-	RC.state.stack_counter++;
-}
-
-// void
-// draw_begin(void)
-// {
-// 	sm__renderer_m4_load_identity();
-// }
-//
-// void
-// draw_end(void)
-// {
-// 	sm__batch_draw();
-// }
-
-void
-upload_mesh(mesh_component *mesh)
-{
-	mesh_resource *m = mesh->mesh_ref;
-	glCall(glGenVertexArrays(1, &m->vao));
-	glCall(glBindVertexArray(m->vao));
-
-	struct attributes
-	{
-		u32 idx;
-		str8 n;
-		void *ptr;
-		u32 size;
-		u32 comp;
-	} ctable[4] = {
-	    {
-		.idx = 0,
-		.n = str8_from("a_position"),
-		.ptr = m->positions,
-		.size = array_len(m->positions) * sizeof(v3),
-		.comp = 3,
-	     },
-	    {
-		.idx = 1,
-		.n = str8_from("a_uv"),
-		.ptr = m->uvs,
-		.size = array_len(m->uvs) * sizeof(v2),
-		.comp = 2,
-	     },
-	    {
-		.idx = 2,
-		.n = str8_from("a_color"),
-		.ptr = m->colors,
-		.size = array_len(m->colors) * sizeof(v4),
-		.comp = 4,
-	     },
-	    {
-		.idx = 3,
-		.n = str8_from("a_normal"),
-		.ptr = m->normals,
-		.size = array_len(m->normals) * sizeof(v3),
-		.comp = 3,
-	     },
-	};
-
-	for (u32 i = 0; i < ARRAY_SIZE(ctable); ++i)
-	{
-		// sm__assert(ctable[i].ptr != 0);
-		if (!ctable[i].ptr) continue;
-		glCall(glGenBuffers(1, &m->vbos[ctable[i].idx]));
-		glCall(glBindBuffer(GL_ARRAY_BUFFER, m->vbos[ctable[i].idx]));
-		glCall(glBufferData(GL_ARRAY_BUFFER, ctable[i].size, ctable[i].ptr, GL_STATIC_DRAW));
-
-		i32 a_loc = shader_resource_get_attribute_loc(RC.state.selected_shader, ctable[i].n, true);
-		glCall(glVertexAttribPointer((u32)a_loc, (i32)ctable[i].comp, GL_FLOAT, GL_FALSE, 0, (void *)0));
-		glCall(glEnableVertexAttribArray((u32)a_loc));
-	}
-
-	sm__assert(m->indices);
-	glCall(glGenBuffers(1, &m->ebo));
-	glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m->ebo));
-	glCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, array_len(m->indices) * sizeof(u32), m->indices, GL_STATIC_DRAW));
-
-	if (m->flags & MESH_FLAG_SKINNED)
-	{
-		glCall(glGenBuffers(1, &m->skin_data.vbos[0]));
-		glCall(glBindBuffer(GL_ARRAY_BUFFER, m->skin_data.vbos[0]));
-		glCall(glBufferData(GL_ARRAY_BUFFER, array_len(m->skin_data.weights) * sizeof(v4), m->skin_data.weights,
-		    GL_STATIC_DRAW));
-
-		i32 a_weights_loc =
-		    shader_resource_get_attribute_loc(RC.state.selected_shader, str8_from("a_weights"), true);
-		glCall(glVertexAttribPointer((u32)a_weights_loc, 4, GL_FLOAT, GL_FALSE, 0, (void *)0));
-		glCall(glEnableVertexAttribArray((u32)a_weights_loc));
-
-		glCall(glGenBuffers(1, &m->skin_data.vbos[1]));
-		glCall(glBindBuffer(GL_ARRAY_BUFFER, m->skin_data.vbos[1]));
-		glCall(glBufferData(GL_ARRAY_BUFFER, array_len(m->skin_data.influences) * sizeof(iv4),
-		    m->skin_data.influences, GL_STATIC_DRAW));
-
-		i32 a_joints_loc =
-		    shader_resource_get_attribute_loc(RC.state.selected_shader, str8_from("a_joints"), true);
-		glCall(glVertexAttribPointer((u32)a_joints_loc, 4, GL_FLOAT, GL_FALSE, 0, (void *)0));
-		glCall(glEnableVertexAttribArray((u32)a_joints_loc));
-	}
-
-	glCall(glBindVertexArray(0));
-
-	glCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-	glCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
-
-	if (m->vao > 0)
-	{
-		log_info(str8_from("[{s}] mesh uploaded successfully to VRAM"), mesh->resource_ref->name);
-		return;
-	}
-
-	sm__unreachable();
-}
-
-// void
-// draw_mesh(camera_component *camera, mesh_component *mesh, material_component *material, m4 model)
-// {
-// 	sm__assert(mesh->resource_ref->type == RESOURCE_MESH);
-//
-// 	struct mesh_resource *mes = mesh->resource_ref->data;
-// 	struct material_resource *mat = (material->resource_ref) ? material->resource_ref->material_data : 0;
-//
-// 	if (!mes) { return; }
-//
-// 	if (mes->vao == 0) { upload_mesh(mesh); }
-//
-// 	v4 diffuse_color = v4_one();
-// 	b8 double_sided = mes->flags & MESH_FLAG_DOUBLE_SIDED;
-//
-// 	b8 use_fog = renderer_is_set_fog() && !mes->skin_data.is_skinned;
-//
-// 	struct shader_resource *shader;
-// 	shader = mes->skin_data.is_skinned ? RC.state.default_program_skinned3D : RC.state.default_program3D;
-// 	if (use_fog) { shader = RC.state.default_program3D_fog; }
-//
-// 	u32 texture = RC.state.default_texture_ref.image_data->texture_handle;
-//
-// 	if (mat)
-// 	{
-// 		if (mat->color.hex != 0) { diffuse_color = color_to_v4(mat->color); }
-// 		// double_sided = mat->double_sided;
-// 		// if (mat->shader_handle) { shader = mat->shader_handle; }
-// 		if (mat->image.size != 0)
-// 		{
-// 			struct resource *img_resource = resource_get_by_name(mat->image);
-// 			sm__assert(img_resource->type == RESOURCE_IMAGE);
-//
-// 			struct image_resource *img = img_resource->data;
-// 			if (!img->texture_handle) { renderer_upload_texture(img); }
-// 			texture = img->texture_handle;
-// 			sm__assert(texture != 0);
-// 		}
-// 	}
-//
-// 	glCall(glBindVertexArray(mes->vao));
-// 	glCall(glUseProgram(shader->program));
-//
-// 	i32 texture_loc = shader_resource_get_sampler_loc(shader, str8_from("u_tex0"), true);
-// 	glCall(glUniform1i(texture_loc, 0));
-// 	glCall(glActiveTexture(GL_TEXTURE0 + 0));
-// 	glCall(glBindTexture(GL_TEXTURE_2D, texture));
-//
-// 	// glCall(u_model_loc = glGetUniformLocation(shader, "u_model"));
-// 	i32 u_model_loc = shader_resource_get_uniform_loc(shader, str8_from("u_model"), false);
-// 	if (u_model_loc != -1) { glCall(glUniformMatrix4fv(u_model_loc, 1, false, model.float16)); }
-//
-// 	// i32 u_inv_model_loc = -1;
-// 	// glCall(u_inv_model_loc = glGetUniformLocation(shader, "u_inverse_model"));
-// 	i32 u_inv_model_loc = shader_resource_get_uniform_loc(shader, str8_from("u_inverse_model"), false);
-// 	if (u_inv_model_loc != -1)
-// 	{
-// 		m4 inv_model;
-// 		glm_mat4_inv(model.data, inv_model.data);
-// 		glCall(glUniformMatrix4fv(u_inv_model_loc, 1, false, inv_model.float16));
-// 	}
-//
-// 	// i32 u_fog_mode_loc = -1;
-// 	// glCall(u_fog_mode_loc = glGetUniformLocation(shader, "u_fog_mode"));
-// 	i32 u_fog_mode_loc = shader_resource_get_uniform_loc(shader, str8_from("u_fog_mode"), false);
-// 	if (u_fog_mode_loc != -1) { glCall(glUniform1i(u_fog_mode_loc, RC.env.fog_mode)); }
-//
-// 	// i32 u_fog_start_end_density_loc = -1;
-// 	// glCall(u_fog_start_end_density_loc = glGetUniformLocation(shader, "u_fog_sed"));
-// 	i32 u_fog_start_end_density_loc = shader_resource_get_uniform_loc(shader, str8_from("u_fog_sed"),
-// false); 	if (u_fog_start_end_density_loc != -1)
-// 	{
-// 		v3 fog_start_end_density = v3_new(RC.env.fog_start, RC.env.fog_end, RC.env.fog_density);
-// 		glCall(glUniform3fv(u_fog_start_end_density_loc, 1, fog_start_end_density.data));
-// 	}
-//
-// 	// i32 u_fog_color_loc = -1;
-// 	// glCall(u_fog_color_loc = glGetUniformLocation(shader, "u_fog_color"));
-// 	i32 u_fog_color_loc = shader_resource_get_uniform_loc(shader, str8_from("u_fog_color"), false);
-// 	if (u_fog_color_loc != -1)
-// 	{
-// 		v4 fog_color = color_to_v4(RC.env.fog_color);
-// 		glCall(glUniform4fv(u_fog_color_loc, 1, fog_color.data));
-// 	}
-//
-// 	m4 view = camera_get_view(camera);
-// 	m4 proj = camera_get_projection(camera);
-//
-// 	m4 view_projection_matrix;
-// 	glm_mat4_mul(proj.data, view.data, view_projection_matrix.data);
-//
-// 	// i32 u_pv = -1;
-// 	// glCall(u_pv = glGetUniformLocation(shader, "u_pv"));
-// 	i32 u_pv = shader_resource_get_uniform_loc(shader, str8_from("u_pv"), false);
-// 	if (u_pv != -1) { glCall(glUniformMatrix4fv(u_pv, 1, false, view_projection_matrix.float16)); }
-//
-// 	// i32 u_pvm = -1;
-// 	// glCall(u_pvm = glGetUniformLocation(shader, "u_pvm"));
-// 	i32 u_pvm = shader_resource_get_uniform_loc(shader, str8_from("u_pvm"), false);
-// 	if (u_pvm != -1)
-// 	{
-// 		m4 mvp;
-// 		glm_mat4_mul(view_projection_matrix.data, model.data, mvp.data);
-// 		glCall(glUniformMatrix4fv(u_pvm, 1, false, mvp.float16));
-// 	}
-//
-// 	// i32 u_diffuse_color = -1;
-// 	// glCall(u_diffuse_color = glGetUniformLocation(shader, "u_diffuse_color"));
-// 	i32 u_diffuse_color = shader_resource_get_uniform_loc(shader, str8_from("u_diffuse_color"), false);
-// 	if (u_diffuse_color != -1) { glCall(glUniform4fv(u_diffuse_color, 1, diffuse_color.data)); }
-//
-// 	if (mes->skin_data.is_skinned)
-// 	{
-// 		sm__assert(shader == RC.state.default_program_skinned3D);
-//
-// 		i32 u_animated = shader_resource_get_uniform_loc(shader, str8_from("u_animated"), true);
-// 		glCall(glUniformMatrix4fv(u_animated, (i32)array_len(mes->skin_data.pose_palette), GL_FALSE,
-// 		    mes->skin_data.pose_palette->float16));
-// 	}
-//
-// 	if (double_sided) glCall(glDisable(GL_CULL_FACE));
-//
-// 	if (mes->indices) glCall(glDrawElements(GL_TRIANGLES, (i32)array_len(mes->indices), GL_UNSIGNED_INT,
-// 0)); 	else glCall(glDrawArrays(GL_TRIANGLES, 0, (i32)array_len(mes->positions)));
-//
-// 	if (double_sided) glCall(glEnable(GL_CULL_FACE));
-//
-// 	glCall(glBindTexture(GL_TEXTURE_2D, 0));
-//
-// 	glCall(glUseProgram(0));
-// 	glCall(glBindVertexArray(0));
-// }
-
-void
-draw_mesh2(mesh_component *mesh)
-{
-	sm__assert(mesh->resource_ref->type == RESOURCE_MESH);
-
-	struct mesh_resource *mes = mesh->resource_ref->data;
-
-	if (!mes) { return; }
-	if (mes->vao == 0) { upload_mesh(mesh); }
-
-	glCall(glBindVertexArray(mes->vao));
-
-	if (mes->indices) { glCall(glDrawElements(GL_TRIANGLES, (i32)array_len(mes->indices), GL_UNSIGNED_INT, 0)); }
-	else { glCall(glDrawArrays(GL_TRIANGLES, 0, (i32)array_len(mes->positions))); }
-
-	glCall(glBindVertexArray(0));
-}
-
 void
 draw_rectangle(v2 position, v2 wh, f32 rotation, color c)
 {
@@ -2480,14 +3118,14 @@ enum
 	ATLAS_HEIGHT = 128
 };
 
-#include "renderer/toshibasat8x8.h"
+#	include "renderer/toshibasat8x8.h"
 
 static u32
 sm__get_sprite_index(struct atlas_sprite *sprite_desc, u32 sprite_count, i32 char_value)
 {
 	u32 result = 0;
 
-	for (u32 i = 0; i < sprite_count; i++)
+	for (u32 i = 0; i < sprite_count; ++i)
 	{
 		if (char_value == sprite_desc[i].charValue)
 		{
@@ -2504,7 +3142,7 @@ draw_text(str8 text, v2 pos, i32 font_size, color c)
 {
 	sm__batch_overflow(4 * text.size);
 
-	struct resource *resource = resource_get_by_name(str8_from("toshibasat8x8"));
+	struct resource *resource = resource_get_by_label(str8_from("toshibasat8x8"));
 	sm__assert(resource && resource->type == RESOURCE_IMAGE && resource->image_data);
 	struct image_resource *image = resource->image_data;
 
@@ -2518,7 +3156,7 @@ draw_text(str8 text, v2 pos, i32 font_size, color c)
 
 		f32 advance_x = 0;
 		f32 advance_y = 0;
-		for (const i8 *p = text.idata; *p; p++)
+		for (const i8 *p = text.idata; *p; ++p)
 		{
 			if ((*p & 0xc0) == 0x80) { continue; }
 			i32 chr = MIN(*p, 127);
@@ -2595,7 +3233,7 @@ draw_text(str8 text, v2 pos, i32 font_size, color c)
 // 		sm__color(c);
 //
 // 		f32 advance_x = 0;
-// 		for (const i8 *p = text.idata; *p; p++)
+// 		for (const i8 *p = text.idata; *p; ++p)
 // 		{
 // 			if ((*p & 0xc0) == 0x80) { continue; }
 // 			i32 chr = MIN(*p, 127);
@@ -2671,7 +3309,7 @@ draw_text(str8 text, v2 pos, i32 font_size, color c)
 // 		sm__color(c);
 //
 // 		f32 advance_x = 0;
-// 		for (const i8 *p = text.idata; *p; p++)
+// 		for (const i8 *p = text.idata; *p; ++p)
 // 		{
 // 			if ((*p & 0xc0) == 0x80) { continue; }
 // 			i32 chr = MIN(*p, 127);
@@ -2727,7 +3365,7 @@ draw_grid(i32 slices, f32 spacing)
 	sm__batch_overflow((u32)(slices + 2) * 4);
 
 	sm__renderer_begin(GL_LINES);
-	for (int i = -half_slices; i <= half_slices; i++)
+	for (int i = -half_slices; i <= half_slices; ++i)
 	{
 		if (i == 0) { sm__color_v4(v4_new(0.5f, 0.5f, 0.5f, 1.0f)); }
 		else { sm__color_v4(v4_new(0.75f, 0.75f, 0.75f, 1.0f)); }
@@ -2754,9 +3392,9 @@ draw_sphere(trs t, u32 rings, u32 slices, color c)
 		sm__color(c);
 		f32 frings = (f32)rings;
 		f32 fslices = (f32)slices;
-		for (f32 i = 0; i < (frings + 2); i++)
+		for (f32 i = 0; i < (frings + 2); ++i)
 		{
-			for (f32 j = 0; j < fslices; j++)
+			for (f32 j = 0; j < fslices; ++j)
 			{
 				f32 v1_x = cosf(glm_rad(270 + (180.0f / (frings + 1)) * i)) *
 					   sinf(glm_rad(360.0f * j / fslices));
@@ -3033,9 +3671,9 @@ draw_capsule_wires(v3 start_pos, v3 end_pos, f32 radius, u32 slices, u32 rings, 
 	// render both caps
 	u32 caps_count = 0;
 caps:
-	for (u32 ring = 0; ring < rings; ring++)
+	for (u32 ring = 0; ring < rings; ++ring)
 	{
-		for (u32 slice = 0; slice < slices; slice++)
+		for (u32 slice = 0; slice < slices; ++slice)
 		{
 			const f32 i = (f32)ring;
 			const f32 j = (f32)slice;
@@ -3126,7 +3764,7 @@ caps:
 	// render middle
 	if (!sphere_case)
 	{
-		for (u32 uj = 0; uj < slices; uj++)
+		for (u32 uj = 0; uj < slices; ++uj)
 		{
 			const f32 j = (f32)uj;
 			// compute the four vertices
@@ -3261,43 +3899,4 @@ draw_ray(struct ray ray, color c)
 	    ray.position.z + ray.direction.z * s);
 	sm__renderer_end();
 }
-
-void
-renderer_on_resize(u32 width, u32 height)
-{
-	glCall(glViewport(0, 0, (i32)width, (i32)height));
-
-	m4 ortho;
-	sm__m4_mode(MATRIX_MODE_PROJECTION);
-	sm__m4_load_identity();
-	glm_ortho(0, (f32)width, (f32)height, 0, -1.0f, 1.0f, ortho.data);
-	sm__m4_mul(ortho.data);
-
-	sm__m4_mode(MATRIX_MODE_MODEL_VIEW);
-	sm__m4_load_identity();
-}
-
-void
-renderer_set_clear_color(color c)
-{
-	RC.clear_color = c;
-}
-
-void
-renderer_clear_color(void)
-{
-	v4 c = color_to_v4(RC.clear_color);
-	glCall(glClearColor(c.r, c.g, c.b, c.a));
-}
-
-void
-renderer_clear_color_buffer(void)
-{
-	glClear(GL_COLOR_BUFFER_BIT);
-}
-
-void
-renderer_clear_depth_buffer(void)
-{
-	glClear(GL_DEPTH_BUFFER_BIT);
-}
+#endif
