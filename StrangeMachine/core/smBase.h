@@ -47,25 +47,25 @@
 // #define sm__assertf(_e, ...) do { if (!(_e)) { sx__debug_message(__FILE__, __LINE__, __VA_ARGS__); sx_hwbreak(); }}
 // while(0)
 
-#	define sm__assert(_ass)                                                                          \
-		do {                                                                                      \
-			if (!(_ass))                                                                      \
-			{                                                                                 \
-				printf("\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name, \
-				    sm__file_line, #_ass);                                                \
-				sm__dbgbreak();                                                           \
-			}                                                                                 \
+#	define sm__assert(_ass)                                                                            \
+		do {                                                                                        \
+			if (!(_ass))                                                                        \
+			{                                                                                   \
+				printf("\n\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name, \
+				    sm__file_line, #_ass);                                                  \
+				sm__dbgbreak();                                                             \
+			}                                                                                   \
 		} while (0)
-#	define sm__assertf(_ass, ...)                                                                    \
-		do {                                                                                      \
-			if (!(_ass))                                                                      \
-			{                                                                                 \
-				printf("\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name, \
-				    sm__file_line, #_ass);                                                \
-				printf("\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name, \
-				    sm__file_line, __VA_ARGS__);                                          \
-				sm__dbgbreak();                                                           \
-			}                                                                                 \
+#	define sm__assertf(_ass, ...)                                                                      \
+		do {                                                                                        \
+			if (!(_ass))                                                                        \
+			{                                                                                   \
+				printf("\n\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name, \
+				    sm__file_line, #_ass);                                                  \
+				printf("\x1b[31m > > >\x1b[0m \x1b[90m%s:%d:\x1b[0m %s\n", sm__file_name,   \
+				    sm__file_line, __VA_ARGS__);                                            \
+				sm__dbgbreak();                                                             \
+			}                                                                                   \
 		} while (0)
 
 #	define sm__unreachable()                             \
@@ -140,6 +140,10 @@ typedef double f64;
 
 // Boolean type
 typedef _Bool b8;
+typedef int32_t b32;
+
+typedef ptrdiff_t isize;
+typedef size_t usize;
 
 /* Ensure all types are of the correct size. */
 sm__static_assert(sizeof(u8) == 1, "expected u8 to be 1 byte");

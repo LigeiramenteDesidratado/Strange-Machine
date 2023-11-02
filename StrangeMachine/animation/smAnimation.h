@@ -72,10 +72,4 @@ f32 transform_track_get_start_time(const struct transform_track *transform_track
 f32 transform_track_get_end_time(const struct transform_track *transform_track);
 trs transform_track_sample(struct transform_track *transform_track, trs *transform_ref, f32 time, b8 looping);
 
-struct transform_track *clip_get_transform_track_from_joint(struct arena *arena, struct clip_resource *clip, u32 joint);
-void clip_recalculate_duration(struct clip_resource *clip);
-f32 clip_get_duration(struct clip_resource *clip);
-f32 clip_adjust_time(struct clip_resource *const clip, f32 t);
-f32 clip_sample(struct clip_resource *clip, struct pose *pose, f32 t);
-
 #endif // SM_ANIMATION_H

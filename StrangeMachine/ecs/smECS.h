@@ -107,19 +107,6 @@ transform_init(transform_component *transform)
 	transform->transform_local = trs_identity();
 }
 
-typedef struct world
-{
-	m4 matrix;
-	m4 last_matrix;
-} world_component;
-
-sm__force_inline void
-world_store_matrix(world_component *world, m4 new_world)
-{
-	glm_mat4_ucopy(world->matrix.data, world->last_matrix.data);
-	glm_mat4_ucopy(new_world.data, world->matrix.data);
-}
-
 typedef struct material
 {
 	material_resource *material_ref;
@@ -209,8 +196,8 @@ camera_get_fov_y(camera_component *camera)
 {
 	f32 result;
 
-	result = 2.0f * atanf(tanf(camera->fovx * 0.5f) *
-			      ((f32)core_get_framebuffer_height() / (f32)core_get_framebuffer_width()));
+	result =
+	    2.0f * atanf(tanf(camera->fovx * 0.5f) * ((f32)core_get_window_height() / (f32)core_get_window_width()));
 
 	return (result);
 }
@@ -278,35 +265,18 @@ camera_screen_to_world(camera_component *camera, v2 position_window, v4 viewport
 typedef struct mesh
 {
 	struct resource *resource_ref;
-	mesh_resource *mesh_ref;
+	mesh_resource mesh_handle;
+
+	buffer_handle position_buffer;
+	buffer_handle uv_buffer;
+	buffer_handle color_buffer;
+	buffer_handle normal_buffer;
+	buffer_handle index_buffer;
+
+	buffer_handle weights_buffer;
+	buffer_handle influences_buffer;
+
 } mesh_component;
-
-sm__force_inline void
-mesh_calculate_aabb(mesh_component *mesh)
-{
-	// get min and max vertex to construct bounds (struct AABB)
-	v3 min_vert;
-	v3 max_vert;
-
-	if (mesh->mesh_ref->positions != 0)
-	{
-		glm_vec3_copy(mesh->mesh_ref->positions[0].data, min_vert.data);
-		glm_vec3_copy(mesh->mesh_ref->positions[0].data, max_vert.data);
-
-		for (u32 i = 1; i < array_len(mesh->mesh_ref->positions); ++i)
-		{
-			glm_vec3_minv(min_vert.data, mesh->mesh_ref->positions[i].data, min_vert.data);
-			glm_vec3_maxv(max_vert.data, mesh->mesh_ref->positions[i].data, max_vert.data);
-		}
-	}
-
-	// create the bounding box
-	struct aabb axis_aligned_bb;
-	glm_vec3_copy(min_vert.data, axis_aligned_bb.min.data);
-	glm_vec3_copy(max_vert.data, axis_aligned_bb.max.data);
-
-	mesh->mesh_ref->aabb = axis_aligned_bb;
-}
 
 typedef struct rigid_body
 {

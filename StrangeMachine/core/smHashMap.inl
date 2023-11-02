@@ -14,7 +14,7 @@ struct FN(entry_map)
 
 struct FN(result)
 {
-	b8 ok;
+	b32 ok;
 	GEN_VALUE_TYPE value;
 };
 
@@ -45,7 +45,7 @@ struct FN(result) FN(map_get)(struct FN(map) * map, GEN_KEY_TYPE key);
 struct FN(result) FN(map_remove)(struct arena *arena, struct FN(map) * map, GEN_KEY_TYPE key);
 
 void FN(for_each)(
-    struct FN(map) * map, b8 (*cb)(GEN_KEY_TYPE key, GEN_VALUE_TYPE value, void *user_data), void *user_data);
+    struct FN(map) * map, b32 (*cb)(GEN_KEY_TYPE key, GEN_VALUE_TYPE value, void *user_data), void *user_data);
 
 static void
 FN(sm__expand_if_necessary)(struct arena *arena, struct FN(map) * map)
@@ -93,10 +93,10 @@ FN(sm__hash_key)(GEN_KEY_TYPE key)
 	return (result);
 }
 
-static b8
+static b32
 FN(sm__equal_keys)(GEN_KEY_TYPE key_a, u32 hash_a, GEN_KEY_TYPE key_b, u32 hash_b)
 {
-	b8 result = false;
+	b32 result = false;
 	if (hash_a != hash_b) { return (result); }
 
 	result = GEN_CMP_KEY_FN(key_a, key_b);
@@ -212,7 +212,7 @@ struct FN(result) FN(map_remove)(struct arena *arena, struct FN(map) * map, GEN_
 }
 
 void
-FN(for_each)(struct FN(map) * map, b8 (*cb)(GEN_KEY_TYPE key, GEN_VALUE_TYPE value, void *user_data), void *user_data)
+FN(for_each)(struct FN(map) * map, b32 (*cb)(GEN_KEY_TYPE key, GEN_VALUE_TYPE value, void *user_data), void *user_data)
 {
 	for (u32 i = 0; i < map->capcity; ++i)
 	{

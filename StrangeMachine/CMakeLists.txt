@@ -27,7 +27,6 @@ add_library(${PROJECT_NAME}
 	core/smThread.c
         core/smString.c
         core/smArray.c
-	core/smLayer.c
         core/smCore.c
         core/smResource.c
 	core/smPRNG.c

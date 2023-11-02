@@ -116,11 +116,17 @@ sm__ma_allocation_callbacks_init(ma_allocation_callbacks *allocation_callback)
 static ma_result
 sm__physfs_vfs_open(sm__maybe_unused ma_vfs *vfs, const i8 *file_path, ma_uint32 open_mode, ma_vfs_file *file)
 {
-	if (file == 0) { return (MA_INVALID_ARGS); }
+	if (file == 0)
+	{
+		return (MA_INVALID_ARGS);
+	}
 
 	*file = 0;
 
-	if (file_path == 0 || open_mode == 0) { return (MA_INVALID_ARGS); }
+	if (file_path == 0 || open_mode == 0)
+	{
+		return (MA_INVALID_ARGS);
+	}
 
 	struct fs_file *f = arena_reserve(&AC.arena, sizeof(struct fs_file));
 
@@ -129,9 +135,15 @@ sm__physfs_vfs_open(sm__maybe_unused ma_vfs *vfs, const i8 *file_path, ma_uint32
 		sm__assert((open_mode & MA_OPEN_MODE_WRITE) == 0);
 		*f = fs_file_open_read_cstr(file_path);
 	}
-	else { *f = fs_file_open_write_cstr(file_path); }
+	else
+	{
+		*f = fs_file_open_write_cstr(file_path);
+	}
 
-	if (!f->ok) { return (MA_ERROR); }
+	if (!f->ok)
+	{
+		return (MA_ERROR);
+	}
 
 	*file = f;
 
@@ -161,11 +173,17 @@ sm__physfs_vfs_read(sm__maybe_unused ma_vfs *vfs, ma_vfs_file file, void *dest, 
 
 	struct fs_file *f = (struct fs_file *)file;
 	result = fs_file_read(f, dest, size);
-	if (bytes_read != 0) { *bytes_read = result; }
+	if (bytes_read != 0)
+	{
+		*bytes_read = result;
+	}
 
 	if (result != size)
 	{
-		if (result == 0 && fs_file_eof(f)) { return (MA_AT_END); }
+		if (result == 0 && fs_file_eof(f))
+		{
+			return (MA_AT_END);
+		}
 		else
 		{
 			sm__physfs_log_last_error(str8_from("error while reading bytes"));
@@ -188,7 +206,10 @@ sm__physfs_vfs_write(
 	struct fs_file *f = (struct fs_file *)file;
 	result = fs_file_write(f, src, size);
 
-	if (bytes_written != 0) { *bytes_written = result; }
+	if (bytes_written != 0)
+	{
+		*bytes_written = result;
+	}
 
 	// TODO: handle error
 	sm__assert(result == size);
@@ -286,7 +307,10 @@ sm__physfs_vfs_openw(sm__maybe_unused ma_vfs *vfs, sm__maybe_unused const wchar_
 static ma_result
 sm__ma_filesystem_callbacks_init(ma_default_vfs *vfs)
 {
-	if (vfs == 0) { return (MA_INVALID_ARGS); }
+	if (vfs == 0)
+	{
+		return (MA_INVALID_ARGS);
+	}
 
 	vfs->cb.onOpen = sm__physfs_vfs_open;
 	vfs->cb.onOpenW = sm__physfs_vfs_openw;
@@ -305,8 +329,11 @@ static void
 sm__audio_log(sm__maybe_unused void *user_data, u32 level, const i8 *message)
 {
 	str8 m = str8_from_cstr_stack((i8 *)message);
-	if (m.size == 0) { return; }
-	m.size--;
+	if (m.size == 0)
+	{
+		return;
+	}
+	m.size--; // remove extra line break
 
 	switch (level)
 	{
@@ -491,19 +518,28 @@ void
 audio_set_master_volume(f32 volume)
 {
 	ma_result result = ma_engine_set_volume(&AC.engine.engine, volume);
-	if (result != MA_SUCCESS) { log_error(str8_from("error while setting volume.")); }
+	if (result != MA_SUCCESS)
+	{
+		log_error(str8_from("error while setting volume."));
+	}
 }
 
 void
 audio_start(void)
 {
 	ma_result result = ma_engine_start(&AC.engine.engine);
-	if (result != MA_SUCCESS) { log_error(str8_from("error while starting sound engine.")); }
+	if (result != MA_SUCCESS)
+	{
+		log_error(str8_from("error while starting sound engine."));
+	}
 }
 
 void
 audio_stop(void)
 {
 	ma_result result = ma_engine_stop(&AC.engine.engine);
-	if (result != MA_SUCCESS) { log_error(str8_from("error while stopping sound engine.")); }
+	if (result != MA_SUCCESS)
+	{
+		log_error(str8_from("error while stopping sound engine."));
+	}
 }

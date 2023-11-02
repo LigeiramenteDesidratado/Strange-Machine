@@ -14,8 +14,6 @@ scene_make(struct arena *arena, struct scene *scene)
 	scene->arena = arena;
 	scene->component_handle_pool = 0;
 	scene->sys_info = 0;
-	scene->main_camera = (entity_t){INVALID_HANDLE};
-	scene->gravity_force = v3_zero();
 }
 
 void
@@ -232,39 +230,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 
 	array_release(arena, nodes_hierarchy);
 
-	return result;
-}
-
-entity_t
-scene_set_main_camera(struct scene *scene, entity_t camera_entity)
-{
-	sm__assert(scene_entity_is_valid(scene, camera_entity));
-
-	entity_t old_camera = scene->main_camera;
-	scene->main_camera = camera_entity;
-
-	return (old_camera);
-}
-
-entity_t
-scene_get_main_camera(struct scene *scene)
-{
-	entity_t result;
-
-	sm__assert(scene_entity_is_valid(scene, scene->main_camera));
-
-	result = scene->main_camera;
-
-	return (result);
-}
-
-v3
-scene_set_gravity_force(struct scene *scene, v3 gravity)
-{
-	v3 old_gravity = scene->gravity_force;
-	scene->gravity_force = gravity;
-
-	return (old_gravity);
+	return;
 }
 
 entity_t
@@ -342,7 +308,10 @@ scene_entity_is_valid(struct scene *scene, entity_t entity)
 	b8 result;
 
 	result = handle_valid(&scene->nodes_handle_pool, entity.handle);
-	if (!result) { return (result); }
+	if (!result)
+	{
+		return (result);
+	}
 
 	u32 index = handle_index(entity.handle);
 	sm__assert(index < scene->nodes_handle_pool.cap);
@@ -481,8 +450,14 @@ scene_entity_set_dirty(struct scene *scene, entity_t entity, b8 dirty)
 	u32 entity_index = handle_index(entity.handle);
 	struct node *entity_node = &scene->nodes[entity_index];
 
-	if (dirty) { entity_node->flags |= (u32)HIERARCHY_FLAG_DIRTY; }
-	else { entity_node->flags &= ~(u32)HIERARCHY_FLAG_DIRTY; }
+	if (dirty)
+	{
+		entity_node->flags |= (u32)HIERARCHY_FLAG_DIRTY;
+	}
+	else
+	{
+		entity_node->flags &= ~(u32)HIERARCHY_FLAG_DIRTY;
+	}
 }
 
 b8
@@ -941,7 +916,10 @@ scene_print_archeype(struct arena *arena, struct scene *scene, entity_t entity)
 				str8_printf(arena, str8_from("({s}"), ctable_components[component_index].name);
 				first = false;
 			}
-			else { str8_printf(arena, str8_from("|{s}"), ctable_components[component_index].name); }
+			else
+			{
+				str8_printf(arena, str8_from("|{s}"), ctable_components[component_index].name);
+			}
 		}
 	}
 	str8_println(str8_from(")"));

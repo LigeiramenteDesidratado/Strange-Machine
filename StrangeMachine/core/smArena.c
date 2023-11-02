@@ -71,7 +71,7 @@ sm__arena_malloc(struct arena *alloc, u32 size, str8 file, u32 line)
 		tlsf_walk_pool(alloc->tlsf_pool, sm__arena_walker, 0);
 		log__log(LOG_ERRO, file, line,
 		    str8_from("OOM: error while allocating memory. Consider increasing the arena size"));
-		exit(1);
+		sm__assert(result);
 	}
 	sync_mutex_unlock(&alloc->mutex);
 
@@ -90,7 +90,7 @@ sm__arena_realloc(struct arena *alloc, void *ptr, u32 size, str8 file, u32 line)
 		tlsf_walk_pool(alloc->tlsf_pool, sm__arena_walker, 0);
 		log__log(LOG_ERRO, file, line,
 		    str8_from("OOM: error while reallocating memory. Consider increasing the arena size"));
-		exit(1);
+		sm__assert(result);
 	}
 	sync_mutex_unlock(&alloc->mutex);
 
@@ -107,7 +107,7 @@ sm__arena_aligned(struct arena *alloc, u32 align, u32 size, str8 file, u32 line)
 	{
 		log__log(LOG_ERRO, file, line,
 		    str8_from("OOM: error while allocating aligned memory. Consider increasing the arena size"));
-		exit(1);
+		sm__assert(result);
 	}
 	sync_mutex_unlock(&alloc->mutex);
 

@@ -1,7 +1,7 @@
 ColumnLimit: 120
 AlignConsecutiveMacros: AcrossComments
 AlignEscapedNewlines: Left
-AllowShortBlocksOnASingleLine: Always
+# AllowShortBlocksOnASingleLine: Always
 AllowShortFunctionsOnASingleLine: Empty
 AlignTrailingComments: true
 # IndentPPDirectives: BeforeHash

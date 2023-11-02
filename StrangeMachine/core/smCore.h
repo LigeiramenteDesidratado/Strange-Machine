@@ -18,49 +18,10 @@ struct ctx
 	f32 dt;
 	f32 fixed_dt;
 	u32 win_width, win_height;
-	u32 framebuffer_width, framebuffer_height;
 	struct arena *arena;
 
 	void *user_data;
 };
-
-typedef void (*layer_f)(struct ctx *ctx);
-
-// Layer
-struct layer
-{
-	str8 name;
-	void *user_data;
-
-	layer_f on_attach;
-	layer_f on_update;
-	layer_f on_draw;
-	layer_f on_detach;
-};
-
-struct layer layer_make(
-    str8 name, void *user_data, layer_f on_attach, layer_f on_update, layer_f on_draw, layer_f on_detach);
-void layer_release(struct layer *layer);
-
-// Stack Layers
-struct stack_layer
-{
-	u32 layer_len;
-	struct layer layers[8];
-	u32 overlayer_len;
-	struct layer overlayers[8];
-};
-
-struct stack_layer stack_layer_make(void);
-void stack_layer_release(struct stack_layer *stack_layer);
-
-void stack_layer_push(struct stack_layer *stack_layer, struct layer layer);
-void stack_layer_pop(struct stack_layer *stack_layer);
-void stack_layer_push_overlayer(struct stack_layer *stack_layer, struct layer overlayer);
-void stack_layer_pop_overlayer(struct stack_layer *stack_layer);
-
-u32 stack_layer_get_len(struct stack_layer *stack_layer);
-struct layer *stack_layer_get_layer(struct stack_layer *stack_layer, u32 index);
 
 // Base memory
 struct dyn_buf
@@ -139,14 +100,19 @@ void *sm__array_pop2(void *ptr);
 void *sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, size_t item_size sm__debug_params);
 
 #define array_make(_arena, _ptr, _cap)                                                                            \
-	do {                                                                                                      \
-		if ((_ptr) || !(_cap)) { continue; }                                                              \
+	do                                                                                                        \
+	{                                                                                                         \
+		if ((_ptr) || !(_cap))                                                                            \
+		{                                                                                                 \
+			continue;                                                                                 \
+		}                                                                                                 \
 		struct sm__array_header *raw = sm__array_make2((_arena), (_cap), sizeof(*(_ptr)) sm__debug_args); \
 		(_ptr) = (typeof((_ptr)))sm__r2a(raw);                                                            \
 	} while (0)
 
 #define array_release(_arena, _ptr)                                       \
-	do {                                                              \
+	do                                                                \
+	{                                                                 \
 		if (_ptr)                                                 \
 		{                                                         \
 			struct sm__array_header *raw = sm__a2r(_ptr);     \
@@ -156,8 +122,12 @@ void *sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, 
 	} while (0)
 
 #define array_set_len(_arena, _ptr, _len)                                                                          \
-	do {                                                                                                       \
-		if (!(_ptr) && (_len) == 0) { continue; }                                                          \
+	do                                                                                                         \
+	{                                                                                                          \
+		if (!(_ptr) && (_len) == 0)                                                                        \
+		{                                                                                                  \
+			continue;                                                                                  \
+		}                                                                                                  \
 		struct sm__array_header *raw =                                                                     \
 		    !(_ptr) ? sm__array_make2((_arena), (_len), sizeof(*(_ptr)) sm__debug_args) : sm__a2r((_ptr)); \
 		raw = sm__array_set_len2((_arena), raw, (_len), sizeof(*(_ptr)) sm__debug_args);                   \
@@ -165,8 +135,12 @@ void *sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, 
 	} while (0)
 
 #define array_set_cap(_arena, _ptr, _cap)                                                                          \
-	do {                                                                                                       \
-		if (!(_ptr) && (_cap) == 0) { continue; }                                                          \
+	do                                                                                                         \
+	{                                                                                                          \
+		if (!(_ptr) && (_cap) == 0)                                                                        \
+		{                                                                                                  \
+			continue;                                                                                  \
+		}                                                                                                  \
 		struct sm__array_header *raw =                                                                     \
 		    !(_ptr) ? sm__array_make2((_arena), (_cap), sizeof(*(_ptr)) sm__debug_args) : sm__a2r((_ptr)); \
 		raw = sm__array_set_cap2((_arena), raw, (_cap), sizeof(*(_ptr)) sm__debug_args);                   \
@@ -175,9 +149,12 @@ void *sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, 
 
 #define array_len(_ptr) ((_ptr) == 0 ? 0 : (((struct sm__array_header *)(_ptr)) - 1)->len)
 #define array_cap(_ptr) ((_ptr) == 0 ? 0 : (((struct sm__array_header *)(_ptr)) - 1)->cap)
+#define array_size(_ptr) \
+	((_ptr) == 0 ? 0 : (((struct sm__array_header *)(_ptr)) - 1)->len * sizeof(*(_ptr))) // size in bytes
 
 #define array_push(_arena, _ptr, _value)                                                                      \
-	do {                                                                                                  \
+	do                                                                                                    \
+	{                                                                                                     \
 		struct sm__array_header *raw =                                                                \
 		    !(_ptr) ? sm__array_make2((_arena), 1, sizeof(*(_ptr)) sm__debug_args) : sm__a2r((_ptr)); \
 		sm__static_type_assert(*(_ptr), (_value));                                                    \
@@ -193,7 +170,8 @@ void *sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, 
  *  }
  */
 #define array_pop(_ptr)                                                 \
-	do {                                                            \
+	do                                                              \
+	{                                                               \
 		if (_ptr)                                               \
 		{                                                       \
 			struct sm__array_header *raw = sm__a2r((_ptr)); \
@@ -202,12 +180,16 @@ void *sm__array_copy2(struct arena *arena, void *dest_ptr, const void *src_ptr, 
 	} while (0)
 
 #define array_del(_ptr, i, n)                                                                                        \
-	do {                                                                                                         \
+	do                                                                                                           \
+	{                                                                                                            \
 		assert((i) >= 0 && "negative index");                                                                \
 		assert((n) >= -1);                                                                                   \
 		struct sm__array_header *raw = sm__a2r(_ptr);                                                        \
 		assert((i) < (i32)raw->len && "index out of range");                                                 \
-		if ((n) == 0) { continue; }                                                                          \
+		if ((n) == 0)                                                                                        \
+		{                                                                                                    \
+			continue;                                                                                    \
+		}                                                                                                    \
 		if (((n) == -1))                                                                                     \
 		{                                                                                                    \
 			raw->len = i;                                                                                \
@@ -291,6 +273,8 @@ i64 i64_prng(void);
 	    f64: f64_min_max,  \
 	    default: i32_min_max)(MIN, MAX)
 
+typedef void (*core_pipeline_f)(sm__maybe_unused struct ctx *ctx);
+
 // Initialize core
 struct core_init
 {
@@ -302,7 +286,6 @@ struct core_init
 	u32 w, h;
 	u32 total_memory;
 
-	u32 framebuffer_w, framebuffer_h;
 	u32 target_fps; // Desired FPS 60, 30, 24
 	u32 fixed_fps;	// Useful for physics
 
@@ -312,18 +295,16 @@ struct core_init
 
 	void *user_data;
 
-	u8 num_layers;
-
 	struct
 	{
-		str8 name;
 		void *user_data;
 
-		layer_f on_attach;
-		layer_f on_update;
-		layer_f on_draw;
-		layer_f on_detach;
-	} layer_init[8];
+		core_pipeline_f on_attach;
+		core_pipeline_f on_update;
+		core_pipeline_f on_draw;
+		core_pipeline_f on_detach;
+
+	} pipeline;
 };
 
 b8 core_init(struct core_init *core_init);
@@ -359,8 +340,6 @@ void *core_set_user_data(void *user_data);
 
 u32 core_get_window_width(void);
 u32 core_get_window_height(void);
-u32 core_get_framebuffer_width(void);
-u32 core_get_framebuffer_height(void);
 i32 core_get_window_x(void);
 i32 core_get_window_y(void);
 

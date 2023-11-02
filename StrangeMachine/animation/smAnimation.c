@@ -68,7 +68,7 @@ track_sample_v4(struct track *track, f32 time, b8 looping, versor out)
 f32
 track_get_start_time(const struct track *track)
 {
-	f32 result;
+	f32 result = 0.0;
 
 	switch (track->track_type)
 	{
@@ -84,7 +84,7 @@ track_get_start_time(const struct track *track)
 f32
 track_get_end_time(const struct track *track)
 {
-	f32 result;
+	f32 result = 0.0;
 
 	switch (track->track_type)
 	{
@@ -115,8 +115,8 @@ track_get_end_time(const struct track *track)
 static f32
 track_adjust_time(struct track *track, f32 t, b8 looping)
 {
-	f32 start_time;
-	f32 end_time;
+	f32 start_time = 0.0;
+	f32 end_time = 0.0;
 
 	// If a track has less than one frame, the track is invalid. If an invalid
 	// track is used, retun 0
@@ -240,7 +240,7 @@ track_index_look_up_table(struct arena *arena, struct track *track)
 	i32 len;
 	f32 start_time;
 	f32 end_time;
-	f32 duration;
+	f32 duration = 0.0;
 
 	switch (track->track_type)
 	{
@@ -793,131 +793,4 @@ transform_track_sample(struct transform_track *transform_track, trs *transform_r
 	}
 
 	return (result);
-}
-
-f32
-clip_get_duration(struct clip_resource *clip)
-{
-	sm__assert(clip);
-	return (clip->end_time - clip->start_time);
-}
-
-// The Sample function takes a  posere ference and a time and returns a float
-// value that is also a time. This function samples the animation clip at the
-// provided time into the pose reference.
-f32
-clip_sample(struct clip_resource *clip, struct pose *pose, f32 t)
-{
-	sm__assert(clip);
-	sm__assert(pose);
-
-	if (clip_get_duration(clip) == 0.0f) { return (0.0f); }
-
-	t = clip_adjust_time(clip, t);
-
-	u32 size = array_len(clip->tracks);
-	for (u32 i = 0; i < size; ++i)
-	{
-		u32 j = clip->tracks[i].id; // joint
-		trs local = pose_get_local_transform(pose, j);
-		trs animated = transform_track_sample(&clip->tracks[i], &local, t, clip->looping);
-
-		pose->joints[j] = animated;
-	}
-
-	return (t);
-}
-
-f32
-clip_adjust_time(struct clip_resource *clip, f32 t)
-{
-	sm__assert(clip);
-
-	if (clip->looping)
-	{
-		f32 duration = clip->end_time - clip->start_time;
-		if (duration <= 0.0f) { return (0.0f); }
-
-		t = fmodf(t - clip->start_time, clip->end_time - clip->start_time);
-
-		if (t < 0.0f) { t += clip->end_time - clip->start_time; }
-
-		t += clip->start_time;
-	}
-	else
-	{
-		if (t < clip->start_time) t = clip->start_time;
-		if (t > clip->end_time) t = clip->end_time;
-	}
-
-	return (t);
-}
-
-// The RecalculateDuration function sets mStartTime and mEndTime to default
-// values of 0. Next, these functions loop through every TransformTrack object
-// in the animation clip. If the track is valid, the start and end times of the
-// track are retrieved. The smallest start time and the largest end time are
-// stored. The start time of a clip might not be 0; it's possible to have a clip
-// that starts at an arbitrary point in time.
-void
-clip_recalculate_duration(struct clip_resource *clip)
-{
-	sm__assert(clip);
-
-	clip->start_time = 0.0f;
-	clip->end_time = 0.0f;
-
-	b8 start_set = false;
-	b8 end_set = false;
-
-	u32 track_size = array_len(clip->tracks);
-	for (u32 i = 0; i < track_size; ++i)
-	{
-		if (!transform_track_is_valid(&clip->tracks[i])) continue;
-
-		f32 start_time = transform_track_get_start_time(&clip->tracks[i]);
-		f32 end_time = transform_track_get_end_time(&clip->tracks[i]);
-
-		if (start_time < clip->start_time || !start_set)
-		{
-			clip->start_time = start_time;
-			start_set = true;
-		}
-
-		if (end_time > clip->end_time || !end_set)
-		{
-			clip->end_time = end_time;
-			end_set = true;
-		}
-	}
-}
-
-// clip_get_transform_track_from_joint is meant to retrieve the
-// transform_track_t object for a specific joint in the clip. This function is
-// mainly used by whatever code loads the animation clip from a file. The
-// function performs a linear search through all of the tracks to see whether
-// any of them targets the specified joint. If a qualifying track is found, a
-// reference to it is returned. If no qualifying track is found, a new one is
-// created and returned:
-// similar [] operator
-struct transform_track *
-clip_get_transform_track_from_joint(struct arena *arena, struct clip_resource *clip, u32 joint)
-{
-	sm__assert(clip);
-
-	for (u32 i = 0; i < array_len(clip->tracks); ++i)
-	{
-		if (clip->tracks[i].id == joint) { return (&clip->tracks[i]); }
-	}
-
-	struct transform_track tranform_track = {
-	    .id = joint,
-	    .scale = (struct track){.track_type = TRACK_TYPE_V3},
-	    .position = (struct track){.track_type = TRACK_TYPE_V3},
-	    .rotation = (struct track){.track_type = TRACK_TYPE_V4},
-	};
-
-	array_push(arena, clip->tracks, tranform_track);
-
-	return (&clip->tracks[array_len(clip->tracks) - 1]);
 }

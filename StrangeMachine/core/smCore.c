@@ -28,7 +28,6 @@ struct window
 	str8 title;
 	GLFWwindow *glfw_handle;
 	u32 width, height;
-	u32 framebuffer_width, framebuffer_height;
 	i32 x, y;
 };
 
@@ -88,10 +87,19 @@ struct core
 	struct input input;
 	struct time time;
 
-	struct stack_layer layers;
-
 	struct arena user_arena;
 	void *user_data;
+
+	struct
+	{
+		void *user_data;
+
+		core_pipeline_f on_attach;
+		core_pipeline_f on_update;
+		core_pipeline_f on_draw;
+		core_pipeline_f on_detach;
+
+	} pipeline;
 };
 
 static struct core CC; // Context Core
@@ -227,16 +235,14 @@ core_init(struct core_init *core_init)
 	}
 	CC.modules |= CORE_SOUND;
 
-	if (!renderer_init(core_init->framebuffer_w, core_init->framebuffer_h))
+	if (!renderer_init(core_init->w, core_init->h))
 	{
 		sm__core_teardown_modules();
 		str8_println(str8_from("error initializing renderer"));
 		return (false);
 	}
-	CC.window.framebuffer_width = core_init->framebuffer_w;
-	CC.window.framebuffer_height = core_init->framebuffer_h;
 	CC.modules |= CORE_RENDERER;
-	renderer_on_resize(core_init->w, core_init->h);
+	// renderer_on_resize(core_init->w, core_init->h);
 
 	struct buf m_scene = base_memory_reserve(MB(8));
 	if (!stage_init(m_scene))
@@ -247,16 +253,10 @@ core_init(struct core_init *core_init)
 	}
 	CC.modules |= CORE_STAGE;
 
-	for (u8 i = 0; i < core_init->num_layers; ++i)
-	{
-		struct layer layer = layer_make(core_init->layer_init[i].name, core_init->layer_init[i].user_data,
-		    core_init->layer_init[i].on_attach, core_init->layer_init[i].on_update,
-		    core_init->layer_init[i].on_draw, core_init->layer_init[i].on_detach);
-
-		stack_layer_push(&CC.layers, layer);
-	}
-
-	// renderer_init(core_init->w, core_init->h);
+	CC.pipeline.on_attach = core_init->pipeline.on_attach;
+	CC.pipeline.on_detach = core_init->pipeline.on_detach;
+	CC.pipeline.on_update = core_init->pipeline.on_update;
+	CC.pipeline.on_draw = core_init->pipeline.on_draw;
 
 	if (core_init->target_fps < 1) { CC.time.target = 0.0; }
 	else { CC.time.target = 1.0f / (f32)core_init->target_fps; }
@@ -276,18 +276,11 @@ core_init(struct core_init *core_init)
 	    .fixed_dt = CC.time.fixed_dt,
 	    .win_width = CC.window.width,
 	    .win_height = CC.window.height,
-	    .framebuffer_width = CC.window.framebuffer_width,
-	    .framebuffer_height = CC.window.framebuffer_height,
 	    .arena = &CC.user_arena,
 	    .user_data = CC.user_data,
 	};
 
-	u32 stack_layer_len = stack_layer_get_len(&CC.layers);
-	for (u32 i = 0; i < stack_layer_len; ++i)
-	{
-		struct layer *layer = stack_layer_get_layer(&CC.layers, i);
-		if (layer->on_attach) { layer->on_attach(&ctx); }
-	}
+	if (CC.pipeline.on_attach) { CC.pipeline.on_attach(&ctx); }
 
 	f32 cursor_pos_x = (f32)core_init->w / 2.0f;
 	f32 cursor_pos_y = (f32)core_init->h / 2.0f;
@@ -309,25 +302,14 @@ core_teardown(void)
 	    .fixed_dt = CC.time.fixed_dt,
 	    .win_width = CC.window.width,
 	    .win_height = CC.window.height,
-	    .framebuffer_width = CC.window.framebuffer_width,
-	    .framebuffer_height = CC.window.framebuffer_height,
 	    .user_data = CC.user_data,
 	};
-
-	u32 stack_layer_len = stack_layer_get_len(&CC.layers);
-	for (u32 i = 0; i < stack_layer_len; ++i)
-	{
-		struct layer *layer = stack_layer_get_layer(&CC.layers, i);
-		layer->on_detach(&ctx);
-	}
 
 	renderer_teardown();
 
 	audio_manager_teardown();
 
 	resource_manager_teardown();
-
-	stack_layer_release(&CC.layers);
 
 	window_teardown(&CC.window);
 
@@ -535,18 +517,6 @@ core_get_window_height(void)
 	return (CC.window.height);
 }
 
-u32
-core_get_framebuffer_width(void)
-{
-	return (CC.window.framebuffer_width);
-}
-
-u32
-core_get_framebuffer_height(void)
-{
-	return (CC.window.framebuffer_height);
-}
-
 i32
 core_get_window_x(void)
 {
@@ -576,20 +546,12 @@ core_main_loop(void)
 		    .fixed_dt = CC.time.fixed_dt,
 		    .win_width = CC.window.width,
 		    .win_height = CC.window.height,
-		    .framebuffer_width = CC.window.framebuffer_width,
-		    .framebuffer_height = CC.window.framebuffer_height,
 		    .arena = &CC.user_arena,
 		    .user_data = CC.user_data,
 		};
 
-		u32 stack_layer_len = stack_layer_get_len(&CC.layers);
-		for (u32 i = 0; i < stack_layer_len; ++i)
-		{
-			struct layer *layer = stack_layer_get_layer(&CC.layers, i);
-			layer->on_update(&ctx);
-		}
-
-		stage_do(&ctx);
+		if (CC.pipeline.on_update) { CC.pipeline.on_update(&ctx); }
+		stage_on_update(&ctx);
 
 		CC.time.current = (f32)glfwGetTime(); // Number of elapsed seconds since InitTimer()
 		CC.time.update = CC.time.current - CC.time.previous;
@@ -601,20 +563,12 @@ core_main_loop(void)
 		    .fixed_dt = CC.time.fixed_dt,
 		    .win_width = CC.window.width,
 		    .win_height = CC.window.height,
-		    .framebuffer_width = CC.window.framebuffer_width,
-		    .framebuffer_height = CC.window.framebuffer_height,
 		    .arena = &CC.user_arena,
 		    .user_data = CC.user_data,
 		};
 
-		renderer_start_frame();
-
-		for (u32 i = 0; i < stack_layer_len; ++i)
-		{
-			struct layer *layer = stack_layer_get_layer(&CC.layers, i);
-			layer->on_draw(&ctx);
-		}
-		renderer_finish_frame();
+		if (CC.pipeline.on_draw) { CC.pipeline.on_draw(&ctx); }
+		stage_on_draw(&ctx);
 
 		// Swap front and back buffers
 		glfwSwapBuffers(CC.window.glfw_handle);
@@ -728,7 +682,7 @@ glfw_window_resize_callback(
 	CC.window.width = (u32)width;
 	CC.window.height = (u32)height;
 
-	renderer_on_resize(CC.window.width, CC.window.height);
+	// renderer_on_resize(CC.window.width, CC.window.height);
 }
 
 static void
