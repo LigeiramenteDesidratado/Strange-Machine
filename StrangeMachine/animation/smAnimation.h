@@ -33,15 +33,25 @@ struct frame_v4
 
 struct track
 {
-#define INTERPOLATION_CONSTANT 0x00000001 // or step
-#define INTERPOLATION_LINEAR   0x00000002
-#define INTERPOLATION_CUBIC    0x00000003
-	const u32 interpolation;
+	enum
+	{
+		ANIM_INTERPOLATION_CONSTANT = 0x1, // or step
+		ANIM_INTERPOLATION_LINEAR,
+		ANIM_INTERPOLATION_CUBIC,
 
-#define TRACK_TYPE_SCALAR 0x00000001
-#define TRACK_TYPE_V3	  0x00000002
-#define TRACK_TYPE_V4	  0x00000003
-	u32 track_type;
+		// enforce 32-bit size enum
+		SM__ANIM__ENFORCE_ENUM_SIZE = 0x7fffffff
+	} interpolation;
+
+	enum
+	{
+		ANIM_TRACK_TYPE_SCALAR = 0x1,
+		ANIM_TRACK_TYPE_V3,
+		ANIM_TRACK_TYPE_V4,
+
+		// enforce 32-bit size enum
+		SM__ANIM_TRACK_TYPE_ENFORCE_ENUM_SIZE = 0x7fffffff
+	} track_type;
 
 	union
 	{
@@ -56,7 +66,7 @@ struct track
 f32 track_get_start_time(const struct track *track);
 f32 track_get_end_time(const struct track *track);
 
-i32 track_frame_index(struct track *track, f32 time, b8 looping);
+i32 track_frame_index(struct track *track, f32 time, b32 looping);
 void track_index_look_up_table(struct arena *arena, struct track *track);
 
 struct transform_track
@@ -67,9 +77,9 @@ struct transform_track
 	struct track scale;
 };
 
-b8 transform_track_is_valid(struct transform_track *transform_track);
+b32 transform_track_is_valid(struct transform_track *transform_track);
 f32 transform_track_get_start_time(const struct transform_track *transform_track);
 f32 transform_track_get_end_time(const struct transform_track *transform_track);
-trs transform_track_sample(struct transform_track *transform_track, trs *transform_ref, f32 time, b8 looping);
+trs transform_track_sample(struct transform_track *transform_track, trs *transform_ref, f32 time, b32 looping);
 
 #endif // SM_ANIMATION_H

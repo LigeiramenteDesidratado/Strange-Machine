@@ -786,11 +786,11 @@ static void
 sm__gltf_load_track_from_channel(struct track *result, u32 stride, const cgltf_animation_channel *channel)
 {
 	cgltf_animation_sampler *sampler = channel->sampler;
-	u32 interp = INTERPOLATION_CONSTANT;
-	if (sampler->interpolation == cgltf_interpolation_type_linear) { interp = INTERPOLATION_LINEAR; }
-	else if (sampler->interpolation == cgltf_interpolation_type_cubic_spline) { interp = INTERPOLATION_CUBIC; }
+	u32 interp = ANIM_INTERPOLATION_CONSTANT;
+	if (sampler->interpolation == cgltf_interpolation_type_linear) { interp = ANIM_INTERPOLATION_LINEAR; }
+	else if (sampler->interpolation == cgltf_interpolation_type_cubic_spline) { interp = ANIM_INTERPOLATION_CUBIC; }
 
-	b8 is_sampler_cubic = interp == INTERPOLATION_CUBIC;
+	b8 is_sampler_cubic = interp == ANIM_INTERPOLATION_CUBIC;
 
 	memcpy((u32 *)&result->interpolation, &interp, sizeof(u32));
 	// result->interpolation = interp;
@@ -810,28 +810,28 @@ sm__gltf_load_track_from_channel(struct track *result, u32 stride, const cgltf_a
 	u32 num_frames = sampler->input->count;
 	u32 comp_count = array_len(val) / array_len(time);
 
-	if (stride == 1) { result->track_type = TRACK_TYPE_SCALAR; }
-	else if (stride == 3) { result->track_type = TRACK_TYPE_V3; }
-	else if (stride == 4) { result->track_type = TRACK_TYPE_V4; }
-	assert(result->track_type == TRACK_TYPE_SCALAR || result->track_type == TRACK_TYPE_V3 ||
-	       result->track_type == TRACK_TYPE_V4);
+	if (stride == 1) { result->track_type = ANIM_TRACK_TYPE_SCALAR; }
+	else if (stride == 3) { result->track_type = ANIM_TRACK_TYPE_V3; }
+	else if (stride == 4) { result->track_type = ANIM_TRACK_TYPE_V4; }
+	assert(result->track_type == ANIM_TRACK_TYPE_SCALAR || result->track_type == ANIM_TRACK_TYPE_V3 ||
+	       result->track_type == ANIM_TRACK_TYPE_V4);
 
 	// clang-format off
 	switch (result->track_type)
 	{
-	case TRACK_TYPE_SCALAR:
+	case ANIM_TRACK_TYPE_SCALAR:
 	{
 		array_set_len(Garena, result->frames_scalar, num_frames);
 		memset(result->frames_scalar, 0x0, num_frames * sizeof(*result->frames_scalar));
 	} break;
 
-	case TRACK_TYPE_V3:
+	case ANIM_TRACK_TYPE_V3:
 	{
 		array_set_len(Garena, result->frames_v3, num_frames);
 		memset(result->frames_v3, 0x0, num_frames * sizeof(*result->frames_v3));
 	} break;
 
-	case TRACK_TYPE_V4:
+	case ANIM_TRACK_TYPE_V4:
 	{
 		array_set_len(Garena, result->frames_v4, num_frames);
 		memset(result->frames_v4, 0x0, num_frames * sizeof(*result->frames_v4));
@@ -845,7 +845,7 @@ sm__gltf_load_track_from_channel(struct track *result, u32 stride, const cgltf_a
 		switch (result->track_type)
 		{
 
-		case TRACK_TYPE_SCALAR:
+		case ANIM_TRACK_TYPE_SCALAR:
 		{
 			u32 base_index = i * comp_count;
 			struct frame_scalar *frame = &result->frames_scalar[i];
@@ -857,7 +857,7 @@ sm__gltf_load_track_from_channel(struct track *result, u32 stride, const cgltf_a
 			frame->out = is_sampler_cubic ? val[base_index + offset++] : 0.0f;
 		} break;
 
-		case TRACK_TYPE_V3:
+		case ANIM_TRACK_TYPE_V3:
 		{
 			u32 base_index = i * comp_count;
 			struct frame_v3 *frame = &result->frames_v3[i];
@@ -879,7 +879,7 @@ sm__gltf_load_track_from_channel(struct track *result, u32 stride, const cgltf_a
 			}
 		} break;
 
-		case TRACK_TYPE_V4:
+		case ANIM_TRACK_TYPE_V4:
 		{
 			u32 base_index = i * comp_count;
 			struct frame_v4 *frame = &result->frames_v4[i];
@@ -930,9 +930,9 @@ sm__gltf_clip_get_transform_track_from_joint(struct arena *arena, struct resourc
 
 	struct transform_track tranform_track = {
 	    .id = joint,
-	    .scale = (struct track){.track_type = TRACK_TYPE_V3},
-	    .position = (struct track){.track_type = TRACK_TYPE_V3},
-	    .rotation = (struct track){.track_type = TRACK_TYPE_V4},
+	    .scale = (struct track){.track_type = ANIM_TRACK_TYPE_V3},
+	    .position = (struct track){.track_type = ANIM_TRACK_TYPE_V3},
+	    .rotation = (struct track){.track_type = ANIM_TRACK_TYPE_V4},
 	};
 
 	array_push(arena, clip->tracks, tranform_track);
@@ -990,8 +990,7 @@ sm__gltf_load_anim_clips(cgltf_data *data)
 		u32 num_channels = data->animations[i].channels_count;
 
 		str8 clip_name = str8_from_cstr(Garena, data->animations[i].name);
-		struct resource_clip_desc clip = {.label = clip_name};
-		clip.looping = true;
+		struct resource_clip_desc clip = {.label = clip_name, .looping = 1};
 
 		for (u32 j = 0; j < num_channels; ++j)
 		{

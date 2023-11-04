@@ -9,8 +9,8 @@ void
 scene_make(struct arena *arena, struct scene *scene)
 {
 	handle_pool_make(arena, &scene->nodes_handle_pool, 8);
-	// array_set_cap(arena, scene->indirect_access, scene->indirect_handle_pool.cap);
 	scene->nodes = arena_reserve(arena, sizeof(struct node) * scene->nodes_handle_pool.cap);
+	scene->nodes_cap = scene->nodes_handle_pool.cap;
 	scene->arena = arena;
 	scene->component_handle_pool = 0;
 	scene->sys_info = 0;
@@ -50,7 +50,10 @@ sm__scene_indirect_access_new_handle(struct arena *arena, struct scene *scene)
 	if (scene->nodes_cap != scene->nodes_handle_pool.cap)
 	{
 		scene->nodes = arena_resize(arena, scene->nodes, sizeof(struct node) * scene->nodes_handle_pool.cap);
+		scene->nodes_cap = scene->nodes_handle_pool.cap;
 	}
+	log_trace(
+	    str8_from("nodes_cap: {u3d}, handle_pool.cap: {u3d}"), scene->nodes_cap, scene->nodes_handle_pool.cap);
 
 	return (result);
 }
@@ -85,8 +88,10 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		entity_t ett, parent_ett;
 	};
 
-	struct child_parent_hierarchy *nodes_hierarchy = 0;
-	array_set_len(arena, nodes_hierarchy, array_len(scn_resource->nodes));
+	u32 node_count = array_len(scn_resource->nodes);
+	struct child_parent_hierarchy *nodes_hierarchy;
+	nodes_hierarchy = arena_reserve(arena, node_count * sizeof(struct child_parent_hierarchy));
+
 	for (u32 i = 0; i < array_len(scn_resource->nodes); ++i)
 	{
 		struct sm__resource_scene_node *node = &scn_resource->nodes[i];
@@ -127,7 +132,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		// ett_h[i].transform = scene_component_get_data(scene, ett, TRANSFORM);
 	}
 
-	for (u32 i = 0; i < array_len(nodes_hierarchy); ++i)
+	for (u32 i = 0; i < node_count; ++i)
 	{
 		struct child_parent_hierarchy *self = &nodes_hierarchy[i];
 		if (self->parent_ptr == 0)
@@ -135,7 +140,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 			continue;
 		}
 
-		for (u32 j = 0; j < array_len(nodes_hierarchy); ++j)
+		for (u32 j = 0; j < node_count; ++j)
 		{
 			if (i == j)
 			{
@@ -154,7 +159,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		sm__assert(self->ett.handle != self->parent_ett.handle);
 	}
 
-	for (u32 i = 0; i < array_len(nodes_hierarchy); ++i)
+	for (u32 i = 0; i < node_count; ++i)
 	{
 		struct child_parent_hierarchy *self = &nodes_hierarchy[i];
 
@@ -381,7 +386,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		}
 	}
 
-	for (u32 i = 0; i < array_len(nodes_hierarchy); ++i)
+	for (u32 i = 0; i < node_count; ++i)
 	{
 		struct child_parent_hierarchy *self = &nodes_hierarchy[i];
 		scene_entity_update_hierarchy(scene, self->ett);
@@ -391,7 +396,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		self_node->flags &= ~(u32)HIERARCHY_FLAG_DIRTY;
 	}
 
-	array_release(arena, nodes_hierarchy);
+	arena_free(arena, nodes_hierarchy);
 
 	return;
 }
@@ -423,13 +428,13 @@ scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype
 		}
 	}
 
-	struct component_pool comp_pool = {0};
-	array_push(arena, scene->component_handle_pool, comp_pool);
+	array_push(arena, scene->component_handle_pool, (struct component_pool){0});
+	struct component_pool *comp_pool = array_last_item(scene->component_handle_pool);
 
 	u32 component_index = array_len(scene->component_handle_pool) - 1;
-	component_pool_make(arena, &scene->component_handle_pool[component_index], 8, archetype);
+	component_pool_make(arena, comp_pool, 8, archetype);
 
-	handle_t component_handle = component_pool_handle_new(arena, &scene->component_handle_pool[component_index]);
+	handle_t component_handle = component_pool_handle_new(arena, comp_pool);
 
 	// result.handle = handle_new(arena, &scene->indirect_handle_pool);
 	result.handle = sm__scene_indirect_access_new_handle(arena, scene);

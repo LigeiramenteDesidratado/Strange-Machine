@@ -200,44 +200,60 @@ static void fs_write_b8(struct fs_file *file, b8 data);
 static b8 fs_read_b8(struct fs_file *file);
 static void fs_write_b8a(struct fs_file *file, array(b8) data);
 static array(b8) fs_read_b8a(struct fs_file *file);
+
+static void fs_write_b32(struct fs_file *file, b32 data);
+static b32 fs_read_b32(struct fs_file *file);
+static void fs_write_b32a(struct fs_file *file, array(b32) data);
+static array(b32) fs_read_b32a(struct fs_file *file);
+
 static void fs_write_u8(struct fs_file *file, u8 data);
 static u8 fs_read_u8(struct fs_file *file);
 static void fs_write_u8a(struct fs_file *file, array(u8) data);
 static array(u8) fs_read_u8a(struct fs_file *file);
+
 static void fs_write_str8(struct fs_file *file, str8 str);
 static str8 fs_read_str8(struct fs_file *file);
+
 static void fs_write_i32(struct fs_file *file, i32 data);
 static i32 fs_read_i32(struct fs_file *file);
 static void fs_write_i32a(struct fs_file *file, array(i32) data);
 static array(i32) fs_read_i32a(struct fs_file *file);
+
 static void fs_write_u32(struct fs_file *file, u32 data);
 static u32 fs_read_u32(struct fs_file *file);
 static void fs_write_u32a(struct fs_file *file, array(u32) data);
 static array(u32) fs_read_u32a(struct fs_file *file);
+
 static void fs_write_u64(struct fs_file *file, u64 data);
 static u64 fs_read_u64(struct fs_file *file);
 static void fs_write_u64a(struct fs_file *file, array(u64) data);
 static array(u64) fs_read_u64a(struct fs_file *file);
+
 static void fs_write_f32(struct fs_file *file, f32 data);
 static f32 fs_read_f32(struct fs_file *file);
 static void fs_write_f32a(struct fs_file *file, array(f32) data);
 static array(f32) fs_read_f32a(struct fs_file *file);
+
 static void fs_write_v2(struct fs_file *file, v2 v);
 static v2 fs_read_v2(struct fs_file *file);
 static void fs_write_v2a(struct fs_file *file, array(v2) v);
 static array(v2) fs_read_v2a(struct fs_file *file);
+
 static void fs_write_v3(struct fs_file *file, v3 v);
 static v3 fs_read_v3(struct fs_file *file);
 static void fs_write_v3a(struct fs_file *file, array(v3) v);
 static array(v3) fs_read_v3a(struct fs_file *file);
+
 static void fs_write_v4(struct fs_file *file, v4 v);
 static v4 fs_read_v4(struct fs_file *file);
 static void fs_write_v4a(struct fs_file *file, array(v4) v);
 static array(v4) fs_read_v4a(struct fs_file *file);
+
 static void fs_write_iv4(struct fs_file *file, iv4 v);
 static iv4 fs_read_iv4(struct fs_file *file);
 static void fs_write_iv4a(struct fs_file *file, array(iv4) v);
 static array(iv4) fs_read_iv4a(struct fs_file *file);
+
 static void fs_write_m4(struct fs_file *file, m4 v);
 static m4 fs_read_m4(struct fs_file *file);
 static void fs_write_m4a(struct fs_file *file, array(m4) v);
@@ -1231,7 +1247,7 @@ static b32
 fs_material_write(struct fs_file *file, struct sm__resource_material *material)
 {
 	fs_write_u32(file, material->color.hex);
-	fs_write_b8(file, material->double_sided);
+	fs_write_b32(file, material->double_sided);
 	fs_write_str8(file, material->image);
 
 	return (1);
@@ -1241,7 +1257,7 @@ static b32
 fs_material_read(struct fs_file *file, struct sm__resource_material *material)
 {
 	material->color.hex = fs_read_u32(file);
-	material->double_sided = fs_read_b8(file);
+	material->double_sided = fs_read_b32(file);
 	material->image = fs_read_str8(file);
 
 	return (1);
@@ -1409,13 +1425,51 @@ fs_mesh_read(struct fs_file *file, struct sm__resource_mesh *mesh)
 	return (1);
 }
 
+static str8
+sm__resource_mesh_flag_str8(enum mesh_flags flag)
+{
+	switch (flag)
+	{
+	case MESH_FLAG_NONE: return str8_from("MESH_FLAG_NONE");
+	case MESH_FLAG_DIRTY: return str8_from("MESH_FLAG_DIRTY");
+	case MESH_FLAG_RENDERABLE: return str8_from("MESH_FLAG_RENDERABLE");
+	case MESH_FLAG_SKINNED: return str8_from("MESH_FLAG_SKINNED");
+	case MESH_FLAG_DRAW_AABB: return str8_from("MESH_FLAG_DRAW_AABB");
+	case MESH_FLAG_BLEND: return str8_from("MESH_FLAG_BLEND");
+	case MESH_FLAG_DOUBLE_SIDED: return str8_from("MESH_FLAG_DOUBLE_SIDED");
+	default: return str8_from("UNKOWN MESH FLAG");
+	}
+}
+
 static void
 sm__resource_mesh_trace(struct sm__resource_mesh *mesh)
 {
 	log_trace(str8_from("        - vertices: {u3d}"), array_len(mesh->positions));
 	log_trace(str8_from("        - indexed : {b}"), mesh->indices != 0);
-	log_trace(str8_from("        - skinned : {b}"), (b8)(mesh->flags & MESH_FLAG_SKINNED));
-	log_trace(str8_from("        - flags   : {u3d}"), mesh->flags);
+
+	char buf[256];
+	char *b = buf;
+	b32 first = 1;
+	for (u64 i = 1; (i - 1) < UINT64_MAX; i <<= 1)
+	{
+		enum mesh_flags flag = mesh->flags & i;
+		if (flag != MESH_FLAG_NONE)
+		{
+			str8 sflag = sm__resource_mesh_flag_str8(flag);
+			if (!first)
+			{
+				memcpy(b, "|", 1);
+				b++;
+			}
+			sm__assert(((ptrdiff_t)b + sflag.size + 1) - (ptrdiff_t)buf < 256);
+			memcpy(b, sflag.idata, sflag.size);
+			b += sflag.size;
+			first = 0;
+		}
+	}
+	*b = 0;
+	str8 flags = str8_from_cstr_stack(buf);
+	log_trace(str8_from("        - flags   : {s}"), flags);
 }
 
 static void
@@ -1665,16 +1719,40 @@ sm__resource_scene_trace(struct sm__resource_scene *scene)
 {
 	log_trace(str8_from("        - nodes   : {u3d}"), array_len(scene->nodes));
 
+	char buf[256];
 	for (u32 i = 0; i < array_len(scene->nodes); ++i)
 	{
-		log_trace(str8_from("        - name    : {s}"), scene->nodes[i].name);
+		log_trace(str8_from(" [{u3d}]    - name    : {s}"), i, scene->nodes[i].name);
 		log_trace(str8_from("        - position: {v3}"), scene->nodes[i].position);
 		log_trace(str8_from("        - rotation: {v4}"), scene->nodes[i].rotation);
 		log_trace(str8_from("        - scale   : {v3}"), scene->nodes[i].scale);
-		log_trace(str8_from("        - prop    : {s}"), resource_scene_node_prop_str8(scene->nodes[i].prop));
 		log_trace(str8_from("        - mesh    : {s}"), scene->nodes[i].mesh);
 		log_trace(str8_from("        - material: {s}"), scene->nodes[i].material);
 		log_trace(str8_from("        - armature: {s}"), scene->nodes[i].armature);
+
+		b32 first = 1;
+		char *b = buf;
+		for (u64 j = 1; (j - 1) < UINT64_MAX; j <<= 1)
+		{
+			enum node_prop flag = scene->nodes[i].prop & j;
+			if (flag != NODE_PROP_NONE)
+			{
+				str8 sflag = resource_scene_node_prop_str8(flag);
+				if (!first)
+				{
+					memcpy(b, "|", 1);
+					b++;
+				}
+				sm__assert(((ptrdiff_t)b + sflag.size + 1) - (ptrdiff_t)buf < 256);
+				memcpy(b, sflag.idata, sflag.size);
+				b += sflag.size;
+				first = 0;
+			}
+		}
+		*b = 0;
+		str8 flags = str8_from_cstr_stack(buf);
+		log_trace(str8_from("        - prop    : {s}"), flags);
+		log_trace(str8_from(""));
 	}
 }
 
@@ -1881,6 +1959,7 @@ resource_clip_make(const struct resource_clip_desc *desc)
 			clip_at->end_time = desc->end_time;
 			clip_at->start_time = desc->start_time;
 			clip_at->tracks = desc->tracks;
+			clip_at->looping = desc->looping;
 
 			struct resource resource = resource_make(desc->label, RESOURCE_CLIP, clip_at->slot);
 			clip_at->slot.ref = resource_push(&resource);
@@ -1906,18 +1985,19 @@ resource_clip_get_by_label(str8 label)
 static void
 sm__write_track(struct fs_file *file, struct track *track)
 {
-	sm__assert(track->interpolation == INTERPOLATION_CONSTANT || track->interpolation == INTERPOLATION_LINEAR ||
-		   track->interpolation == INTERPOLATION_CUBIC);
+	sm__assert(track->interpolation == ANIM_INTERPOLATION_CONSTANT ||
+		   track->interpolation == ANIM_INTERPOLATION_LINEAR ||
+		   track->interpolation == ANIM_INTERPOLATION_CUBIC);
 	fs_write_u32(file, track->interpolation);
 
-	sm__assert(track->track_type == TRACK_TYPE_SCALAR || track->track_type == TRACK_TYPE_V3 ||
-		   track->track_type == TRACK_TYPE_V4);
+	sm__assert(track->track_type == ANIM_TRACK_TYPE_SCALAR || track->track_type == ANIM_TRACK_TYPE_V3 ||
+		   track->track_type == ANIM_TRACK_TYPE_V4);
 	fs_write_u32(file, track->track_type);
 
 	// clang-format off
 	switch (track->track_type)
 	{
-	case TRACK_TYPE_SCALAR:
+	case ANIM_TRACK_TYPE_SCALAR:
 	{
 		u32 len = array_len(track->frames_scalar);
 		fs_write_u32(file, len);
@@ -1931,7 +2011,7 @@ sm__write_track(struct fs_file *file, struct track *track)
 		}
 	} break;
 
-	case TRACK_TYPE_V3:
+	case ANIM_TRACK_TYPE_V3:
 	{
 		u32 len = array_len(track->frames_v3);
 		fs_write_u32(file, len);
@@ -1944,7 +2024,7 @@ sm__write_track(struct fs_file *file, struct track *track)
 		}
 	} break;
 
-	case TRACK_TYPE_V4:
+	case ANIM_TRACK_TYPE_V4:
 	{
 		u32 len = array_len(track->frames_v4);
 		fs_write_u32(file, len);
@@ -1956,6 +2036,7 @@ sm__write_track(struct fs_file *file, struct track *track)
 			sm__assert(0);
 		}
 	} break;
+	default: sm__assertf(0, "invalid track type");
 	}
 	// clang-format on
 
@@ -1969,16 +2050,17 @@ sm__read_track(struct fs_file *file, struct track *track)
 	// track->interpolation = fs_read_u32(file);
 	interp = fs_read_u32(file);
 	memcpy((u32 *)&track->interpolation, &interp, sizeof(u32));
-	sm__assert(track->interpolation == INTERPOLATION_CONSTANT || track->interpolation == INTERPOLATION_LINEAR ||
-		   track->interpolation == INTERPOLATION_CUBIC);
+	sm__assert(track->interpolation == ANIM_INTERPOLATION_CONSTANT ||
+		   track->interpolation == ANIM_INTERPOLATION_LINEAR ||
+		   track->interpolation == ANIM_INTERPOLATION_CUBIC);
 
 	track->track_type = fs_read_u32(file);
-	sm__assert(track->track_type == TRACK_TYPE_SCALAR || track->track_type == TRACK_TYPE_V3 ||
-		   track->track_type == TRACK_TYPE_V4);
+	sm__assert(track->track_type == ANIM_TRACK_TYPE_SCALAR || track->track_type == ANIM_TRACK_TYPE_V3 ||
+		   track->track_type == ANIM_TRACK_TYPE_V4);
 
 	switch (track->track_type)
 	{
-	case TRACK_TYPE_SCALAR:
+	case ANIM_TRACK_TYPE_SCALAR:
 		{
 			u32 len = fs_read_u32(file);
 			array_set_len(&RC.arena, track->frames_scalar, len);
@@ -1993,7 +2075,7 @@ sm__read_track(struct fs_file *file, struct track *track)
 		}
 		break;
 
-	case TRACK_TYPE_V3:
+	case ANIM_TRACK_TYPE_V3:
 		{
 			u32 len = fs_read_u32(file);
 			array_set_len(&RC.arena, track->frames_v3, len);
@@ -2007,7 +2089,7 @@ sm__read_track(struct fs_file *file, struct track *track)
 		}
 		break;
 
-	case TRACK_TYPE_V4:
+	case ANIM_TRACK_TYPE_V4:
 		{
 			u32 len = fs_read_u32(file);
 			array_set_len(&RC.arena, track->frames_v4, len);
@@ -2020,6 +2102,7 @@ sm__read_track(struct fs_file *file, struct track *track)
 			}
 		}
 		break;
+	default: sm__assertf(0, "invalid track type");
 	}
 
 	track->sampled_frames = fs_read_i32a(file);
@@ -2058,7 +2141,7 @@ fs_clip_write(struct fs_file *file, struct sm__resource_clip *clip)
 		sm__write_track(file, &clip->tracks[i].scale);
 	}
 
-	fs_write_b8(file, clip->looping);
+	fs_write_b32(file, clip->looping);
 	fs_write_f32(file, clip->start_time);
 	fs_write_f32(file, clip->end_time);
 
@@ -2079,7 +2162,7 @@ fs_clip_read(struct fs_file *file, struct sm__resource_clip *clip)
 		sm__read_track(file, &clip->tracks[i].scale);
 	}
 
-	clip->looping = fs_read_b8(file);
+	clip->looping = fs_read_b32(file);
 	clip->start_time = fs_read_f32(file);
 	clip->end_time = fs_read_f32(file);
 
@@ -2175,8 +2258,14 @@ sm__resource_clip_adjust_time(struct sm__resource_clip *clip, f32 t)
 	}
 	else
 	{
-		if (t < clip->start_time) t = clip->start_time;
-		if (t > clip->end_time) t = clip->end_time;
+		if (t < clip->start_time)
+		{
+			t = clip->start_time;
+		}
+		if (t > clip->end_time)
+		{
+			t = clip->end_time;
+		}
 	}
 
 	return (t);
@@ -2482,6 +2571,74 @@ static array(u8) fs_read_u8a(struct fs_file *file)
 	if (br != (i64)(len * sizeof(u8)))
 	{
 		sm__physfs_log_last_error(str8_from("error while reading u8 array"));
+		sm__assert(0);
+	}
+
+	return (result);
+}
+
+static void
+fs_write_b32(struct fs_file *file, b32 data)
+{
+	i64 bw = PHYSFS_writeBytes(file->fsfile, &data, sizeof(b32));
+	if (bw != (i64)sizeof(b32))
+	{
+		sm__physfs_log_last_error(str8_from("error while writing b32"));
+		sm__assert(0);
+	}
+}
+
+static b32
+fs_read_b32(struct fs_file *file)
+{
+	b32 result;
+
+	i64 br = PHYSFS_readBytes(file->fsfile, &result, sizeof(b32));
+	if (br != (i64)sizeof(b32))
+	{
+		sm__physfs_log_last_error(str8_from("error while reading b32"));
+		sm__assert(0);
+	}
+
+	return (result);
+}
+
+static void
+fs_write_b32a(struct fs_file *file, array(b32) data)
+{
+	u32 len = array_len(data);
+	i64 bw = PHYSFS_writeBytes(file->fsfile, &len, sizeof(u32));
+	if (bw != (i64)sizeof(u32))
+	{
+		sm__physfs_log_last_error(str8_from("error while writing b32 array len"));
+		sm__assert(0);
+	}
+
+	bw = PHYSFS_writeBytes(file->fsfile, data, len * sizeof(b32));
+	if (bw != (i64)(len * sizeof(b32)))
+	{
+		sm__physfs_log_last_error(str8_from("error while writing b32 array"));
+		sm__assert(0);
+	}
+}
+
+static array(b32) fs_read_b32a(struct fs_file *file)
+{
+	array(b32) result = 0;
+
+	u32 len = 0;
+	i64 br = PHYSFS_readBytes(file->fsfile, &len, sizeof(u32));
+	if (br != (i64)sizeof(u32))
+	{
+		sm__physfs_log_last_error(str8_from("error while reading b32 array len"));
+		sm__assert(0);
+	}
+
+	array_set_len(&RC.arena, result, len);
+	br = PHYSFS_readBytes(file->fsfile, result, len * sizeof(b32));
+	if (br != (i64)(len * sizeof(b32)))
+	{
+		sm__physfs_log_last_error(str8_from("error while reading b32 array"));
 		sm__assert(0);
 	}
 

@@ -1075,7 +1075,7 @@ common_cfc_update(
 
 		for (u32 i = 0; i < targets; ++i)
 		{
-			struct cross_fade_target *target = &cfc->targets[i];
+			struct cross_fade_target *target = cfc->targets + i;
 			target->time =
 			    resource_clip_sample(target->clip_handle, target->pose_ref, target->time + ctx->dt);
 			target->elapsed += ctx->dt;
@@ -1119,8 +1119,8 @@ common_fade_to_update(
 			clip->current_clip_handle = clip->next_clip_handle;
 
 			struct sm__resource_clip *clip_resource = resource_clip_at(clip->current_clip_handle);
-			// clip->time = clip->current_clip_ref->start_time;
 			clip->time = clip_resource->start_time;
+
 			struct pose *rest = &armature_resource->rest;
 			pose_copy(arena, current, rest);
 			continue;
@@ -1141,10 +1141,10 @@ common_fade_to_update(
 
 		struct sm__resource_clip *next_clip_resource = resource_clip_at(clip->next_clip_handle);
 		struct cross_fade_target target = {
-		    .clip_handle = clip->next_clip_handle,
-		    .time = next_clip_resource->start_time,
 		    .pose_ref = &armature_resource->rest,
+		    .clip_handle = clip->next_clip_handle,
 		    .duration = 0.5,
+		    .time = next_clip_resource->start_time,
 		    .elapsed = 0.0f,
 		};
 
@@ -1174,8 +1174,11 @@ common_m4_palette_update(
 
 		for (u32 i = 0; i < array_len(mesh_resource->skin_data.pose_palette); ++i)
 		{
-			glm_mat4_mul(mesh_resource->skin_data.pose_palette[i].data,
-			    armature_resource->inverse_bind[i].data, mesh_resource->skin_data.pose_palette[i].data);
+			m4 *pose_palette = mesh_resource->skin_data.pose_palette + i;
+			m4 *inverse_bind = armature_resource->inverse_bind + i;
+			m4 *dest = mesh_resource->skin_data.pose_palette + i;
+
+			glm_mat4_mul(pose_palette->data, inverse_bind->data, dest->data);
 		}
 	}
 	return (1);

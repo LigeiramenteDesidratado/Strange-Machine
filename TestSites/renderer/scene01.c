@@ -361,7 +361,8 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 	// DEFAULT BEGIN
 
 	text_resource framebuffer_vert = resource_text_get_by_label(str8_from("shaders/framebuffer.vertex"));
-	text_resource framebuffer_frag = resource_text_get_by_label(str8_from("shaders/framebuffer.fragment"));
+	// text_resource framebuffer_frag = resource_text_get_by_label(str8_from("shaders/framebuffer.fragment"));
+	text_resource framebuffer_frag = resource_text_get_by_label(str8_from("shaders/dither.fragment"));
 
 	struct renderer_shader_desc default_desc = {
 	    .vs = {.handle = framebuffer_vert},
@@ -372,6 +373,9 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 	shader_handle default_shader = renderer_shader_make(&default_desc);
 
 	scene01->display.sampler = scene01->first.sampler;
+
+	texture_handle bayer = renderer_texture_make(&(struct renderer_texture_desc){
+	    .label = str8_from("bayer8tile4"), .handle = resource_image_get_by_label(str8_from("bayer16tile2"))});
 
 	// clang-format off
 	static f32 rectangle_vertices[] = 
@@ -414,14 +418,19 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 	scene01->display.pass_action = default_pass_action;
 
 	struct renderer_bindings default_bindings = {
-	    .textures = {{.name = str8_from("u_framebuffer"),
-		.texture = txt_color,
-		.sampler = scene01->display.sampler}	    },
+	    .textures =
+		{
+			   {.name = str8_from("u_framebuffer"), .texture = txt_color, .sampler = scene01->display.sampler},
+			   {
+			.name = str8_from("u_bayer"),
+			.texture = bayer,
+			.sampler = scene01->display.sampler,
+		    }, },
 	    .buffers =
 		{
-			 {.name = str8_from("a_position"), .buffer = rectangle_buffer},
-			 {.name = str8_from("a_uv"), .buffer = rectangle_buffer},
-			 },
+			   {.name = str8_from("a_position"), .buffer = rectangle_buffer},
+			   {.name = str8_from("a_uv"), .buffer = rectangle_buffer},
+			   },
 	};
 
 	scene01->display.bind = default_bindings;
@@ -462,9 +471,13 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 
 	// scene_load(arena, scene, str8_from("praca-scene"));
 	// scene_load(arena, scene, str8_from("simple-cube-scene"));
-	scene_load(arena, scene, str8_from("cube-scene"));
-	scene_load(arena, scene, str8_from("Scene"));
+	// scene_load(arena, scene, str8_from("cube-scene"));
+	// scene_load(arena, scene, str8_from("mainscene"));
+
+	// scene_load(arena, scene, str8_from("Scene"));
 	// scene_load(arena, scene, str8_from("hierarchy"));
+
+#if 0
 
 	// particle emitter
 	{
@@ -497,6 +510,7 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 			}
 		}
 	}
+#endif
 
 	scene_load(arena, scene, str8_from("woman"));
 	entity_t player_ett = {INVALID_HANDLE};
@@ -516,7 +530,6 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 	{
 		scene_entity_add_component(arena, scene, player_ett, RIGID_BODY | PLAYER);
 		// player_ett = stage_animated_asset_load(str8_from("exported/Woman.gltf"));
-		//
 
 		transform_component *transform = scene_component_get_data(scene, player_ett, TRANSFORM);
 		rigid_body_component *rigid_body = scene_component_get_data(scene, player_ett, RIGID_BODY);

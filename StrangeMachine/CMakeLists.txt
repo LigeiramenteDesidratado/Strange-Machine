@@ -16,7 +16,7 @@ add_subdirectory(vendor/physfs)
 
 if (MSVC)
     # warning level 4
-    add_compile_options(/W4)
+ 	add_compile_options(/W4)
 else()
 	# additional warnings
 	add_compile_options(-ggdb -Wall -Wextra -Wshadow -Wno-unused-function -Wjump-misses-init -Wmissing-prototypes)

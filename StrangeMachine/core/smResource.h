@@ -142,7 +142,7 @@ struct resource_material_desc
 	str8 label;
 
 	color color;
-	b8 double_sided;
+	b32 double_sided;
 
 	str8 image;
 
@@ -157,7 +157,7 @@ struct sm__resource_material
 	struct resource_slot slot;
 
 	color color;
-	b8 double_sided;
+	b32 double_sided;
 
 	str8 image;
 };
@@ -331,7 +331,7 @@ struct resource_clip_desc
 	str8 label;
 
 	array(struct transform_track) tracks;
-	b8 looping;
+	b32 looping;
 	f32 start_time, end_time;
 
 	u32 _end_canary;
@@ -345,7 +345,7 @@ struct sm__resource_clip
 	struct resource_slot slot;
 
 	array(struct transform_track) tracks;
-	b8 looping;
+	b32 looping;
 	f32 start_time, end_time;
 };
 

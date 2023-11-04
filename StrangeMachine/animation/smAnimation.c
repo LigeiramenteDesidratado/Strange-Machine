@@ -3,25 +3,25 @@
 #include "core/smLog.h"
 #include "ecs/smECS.h"
 
-static f32 sm__track_sample_constant_scalar(struct track *track, f32 t, b8 looping);
-static f32 sm__track_sample_linear_scalar(struct track *track, f32 time, b8 looping);
-static f32 sm__track_sample_cubic_scalar(struct track *track, f32 time, b8 looping);
+static f32 sm__track_sample_constant_scalar(struct track *track, f32 t, b32 looping);
+static f32 sm__track_sample_linear_scalar(struct track *track, f32 time, b32 looping);
+static f32 sm__track_sample_cubic_scalar(struct track *track, f32 time, b32 looping);
 
-static void sm__track_sample_constant_v3(struct track *track, f32 t, b8 looping, vec3 out);
-static void sm__track_sample_linear_v3(struct track *track, f32 time, b8 looping, vec3 out);
-static void sm__track_sample_cubic_v3(struct track *track, f32 time, b8 looping, vec3 out);
+static void sm__track_sample_constant_v3(struct track *track, f32 t, b32 looping, vec3 out);
+static void sm__track_sample_linear_v3(struct track *track, f32 time, b32 looping, vec3 out);
+static void sm__track_sample_cubic_v3(struct track *track, f32 time, b32 looping, vec3 out);
 
-static void sm__track_sample_constant_v4(struct track *track, f32 t, b8 looping, versor out);
-static void sm__track_sample_linear_v4(struct track *track, f32 time, b8 looping, versor out);
-static void sm__track_sample_cubic_v4(struct track *track, f32 time, b8 looping, versor out);
+static void sm__track_sample_constant_v4(struct track *track, f32 t, b32 looping, versor out);
+static void sm__track_sample_linear_v4(struct track *track, f32 time, b32 looping, versor out);
+static void sm__track_sample_cubic_v4(struct track *track, f32 time, b32 looping, versor out);
 
 static f32 sm__track_hermite_scalar(f32 t, f32 p1, f32 s1, f32 _p2, f32 s2);
 static void sm__track_hermite_v3(f32 t, vec3 p1, vec3 s1, vec3 _p2, vec3 s2, vec3 out);
 static void sm__track_hermite_v4(f32 t, versor p1, versor s1, versor _p2, versor s2, versor out);
 
 static f32 track_sample_scalar(struct track *track, f32 time, bool looping);
-static void track_sample_vec3(struct track *track, f32 time, b8 looping, vec3 out);
-static void track_sample_v4(struct track *track, f32 time, b8 looping, versor out);
+static void track_sample_vec3(struct track *track, f32 time, b32 looping, vec3 out);
+static void track_sample_v4(struct track *track, f32 time, b32 looping, versor out);
 
 static f32
 track_sample_scalar(struct track *track, f32 time, bool looping)
@@ -30,9 +30,9 @@ track_sample_scalar(struct track *track, f32 time, bool looping)
 
 	switch (track->interpolation)
 	{
-	case INTERPOLATION_CONSTANT: return sm__track_sample_constant_scalar(track, time, looping);
-	case INTERPOLATION_LINEAR: return sm__track_sample_linear_scalar(track, time, looping);
-	case INTERPOLATION_CUBIC: return sm__track_sample_cubic_scalar(track, time, looping);
+	case ANIM_INTERPOLATION_CONSTANT: return sm__track_sample_constant_scalar(track, time, looping);
+	case ANIM_INTERPOLATION_LINEAR: return sm__track_sample_linear_scalar(track, time, looping);
+	case ANIM_INTERPOLATION_CUBIC: return sm__track_sample_cubic_scalar(track, time, looping);
 	default: sm__unreachable();
 	}
 
@@ -40,27 +40,27 @@ track_sample_scalar(struct track *track, f32 time, bool looping)
 }
 
 static void
-track_sample_vec3(struct track *track, f32 time, b8 looping, vec3 out)
+track_sample_vec3(struct track *track, f32 time, b32 looping, vec3 out)
 {
 	sm__assert(track);
 
 	switch (track->interpolation)
 	{
-	case INTERPOLATION_CONSTANT: return sm__track_sample_constant_v3(track, time, looping, out);
-	case INTERPOLATION_LINEAR: return sm__track_sample_linear_v3(track, time, looping, out);
-	case INTERPOLATION_CUBIC: return sm__track_sample_cubic_v3(track, time, looping, out);
+	case ANIM_INTERPOLATION_CONSTANT: return sm__track_sample_constant_v3(track, time, looping, out);
+	case ANIM_INTERPOLATION_LINEAR: return sm__track_sample_linear_v3(track, time, looping, out);
+	case ANIM_INTERPOLATION_CUBIC: return sm__track_sample_cubic_v3(track, time, looping, out);
 	default: sm__unreachable();
 	}
 }
 
 static void
-track_sample_v4(struct track *track, f32 time, b8 looping, versor out)
+track_sample_v4(struct track *track, f32 time, b32 looping, versor out)
 {
 	switch (track->interpolation)
 	{
-	case INTERPOLATION_CONSTANT: return sm__track_sample_constant_v4(track, time, looping, out);
-	case INTERPOLATION_LINEAR: return sm__track_sample_linear_v4(track, time, looping, out);
-	case INTERPOLATION_CUBIC: return sm__track_sample_cubic_v4(track, time, looping, out);
+	case ANIM_INTERPOLATION_CONSTANT: return sm__track_sample_constant_v4(track, time, looping, out);
+	case ANIM_INTERPOLATION_LINEAR: return sm__track_sample_linear_v4(track, time, looping, out);
+	case ANIM_INTERPOLATION_CUBIC: return sm__track_sample_cubic_v4(track, time, looping, out);
 	default: sm__unreachable();
 	}
 }
@@ -72,9 +72,9 @@ track_get_start_time(const struct track *track)
 
 	switch (track->track_type)
 	{
-	case TRACK_TYPE_SCALAR: result = track->frames_scalar[0].t; break;
-	case TRACK_TYPE_V3: result = track->frames_v3[0].t; break;
-	case TRACK_TYPE_V4: result = track->frames_v4[0].t; break;
+	case ANIM_TRACK_TYPE_SCALAR: result = track->frames_scalar[0].t; break;
+	case ANIM_TRACK_TYPE_V3: result = track->frames_v3[0].t; break;
+	case ANIM_TRACK_TYPE_V4: result = track->frames_v4[0].t; break;
 	default: sm__unreachable();
 	}
 
@@ -88,19 +88,19 @@ track_get_end_time(const struct track *track)
 
 	switch (track->track_type)
 	{
-	case TRACK_TYPE_SCALAR:
+	case ANIM_TRACK_TYPE_SCALAR:
 		{
 			u32 index = array_len(track->frames_scalar) - 1;
 			result = track->frames_scalar[index].t;
 		}
 		break;
-	case TRACK_TYPE_V3:
+	case ANIM_TRACK_TYPE_V3:
 		{
 			u32 index = array_len(track->frames_v3) - 1;
 			result = track->frames_v3[index].t;
 		}
 		break;
-	case TRACK_TYPE_V4:
+	case ANIM_TRACK_TYPE_V4:
 		{
 			u32 index = array_len(track->frames_v4) - 1;
 			result = track->frames_v4[index].t;
@@ -113,7 +113,7 @@ track_get_end_time(const struct track *track)
 }
 
 static f32
-track_adjust_time(struct track *track, f32 t, b8 looping)
+track_adjust_time(struct track *track, f32 t, b32 looping)
 {
 	f32 start_time = 0.0;
 	f32 end_time = 0.0;
@@ -122,26 +122,35 @@ track_adjust_time(struct track *track, f32 t, b8 looping)
 	// track is used, retun 0
 	switch (track->track_type)
 	{
-	case TRACK_TYPE_SCALAR:
+	case ANIM_TRACK_TYPE_SCALAR:
 		{
 			u32 len = array_len(track->frames_scalar);
-			if (len == 0) { return 0.0f; }
+			if (len == 0)
+			{
+				return 0.0f;
+			}
 			start_time = track->frames_scalar[0].t;
 			end_time = track->frames_scalar[len - 1].t;
 		}
 		break;
-	case TRACK_TYPE_V3:
+	case ANIM_TRACK_TYPE_V3:
 		{
 			u32 len = array_len(track->frames_v3);
-			if (len == 0) { return 0.0f; }
+			if (len == 0)
+			{
+				return 0.0f;
+			}
 			start_time = track->frames_v3[0].t;
 			end_time = track->frames_v3[len - 1].t;
 		}
 		break;
-	case TRACK_TYPE_V4:
+	case ANIM_TRACK_TYPE_V4:
 		{
 			u32 len = array_len(track->frames_v4);
-			if (len == 0) { return 0.0f; }
+			if (len == 0)
+			{
+				return 0.0f;
+			}
 			start_time = track->frames_v4[0].t;
 			end_time = track->frames_v4[len - 1].t;
 		}
@@ -150,13 +159,19 @@ track_adjust_time(struct track *track, f32 t, b8 looping)
 	}
 
 	f32 duration = end_time - start_time;
-	if (duration <= 0.0f) { return 0.0f; }
+	if (duration <= 0.0f)
+	{
+		return 0.0f;
+	}
 
 	if (looping)
 	{
 		// If the track loops, adjust the time by the duration of the track
 		t = fmodf(t - start_time, duration);
-		if (t < 0.0f) { t += duration; }
+		if (t < 0.0f)
+		{
+			t += duration;
+		}
 		t += start_time;
 	}
 	else
@@ -171,7 +186,7 @@ track_adjust_time(struct track *track, f32 t, b8 looping)
 }
 
 i32
-track_frame_index(struct track *track, f32 time, b8 looping)
+track_frame_index(struct track *track, f32 time, b32 looping)
 {
 	u32 len;
 	f32 start_time;
@@ -180,28 +195,37 @@ track_frame_index(struct track *track, f32 time, b8 looping)
 
 	switch (track->track_type)
 	{
-	case TRACK_TYPE_SCALAR:
+	case ANIM_TRACK_TYPE_SCALAR:
 		{
 			len = array_len(track->frames_scalar);
-			if (len == 0) { return 0.0f; }
+			if (len == 0)
+			{
+				return 0.0f;
+			}
 			start_time = track->frames_scalar[0].t;
 			end_time = track->frames_scalar[len - 1].t;
 			duration = end_time - start_time;
 		}
 		break;
-	case TRACK_TYPE_V3:
+	case ANIM_TRACK_TYPE_V3:
 		{
 			len = array_len(track->frames_v3);
-			if (len == 0) { return 0.0f; }
+			if (len == 0)
+			{
+				return 0.0f;
+			}
 			start_time = track->frames_v3[0].t;
 			end_time = track->frames_v3[len - 1].t;
 			duration = end_time - start_time;
 		}
 		break;
-	case TRACK_TYPE_V4:
+	case ANIM_TRACK_TYPE_V4:
 		{
 			len = array_len(track->frames_v4);
-			if (len == 0) { return 0.0f; }
+			if (len == 0)
+			{
+				return 0.0f;
+			}
 			start_time = track->frames_v4[0].t;
 			end_time = track->frames_v4[len - 1].t;
 			duration = end_time - start_time;
@@ -213,13 +237,22 @@ track_frame_index(struct track *track, f32 time, b8 looping)
 	if (looping)
 	{
 		time = fmodf(time - start_time, duration);
-		if (time < 0.0f) { time += duration; }
+		if (time < 0.0f)
+		{
+			time += duration;
+		}
 		time += start_time;
 	}
 	else
 	{
-		if (time <= start_time) { return 0; }
-		if (time >= end_time) { return (i32)len - 1; }
+		if (time <= start_time)
+		{
+			return 0;
+		}
+		if (time >= end_time)
+		{
+			return (i32)len - 1;
+		}
 	}
 
 	f32 t = time / duration;
@@ -244,28 +277,37 @@ track_index_look_up_table(struct arena *arena, struct track *track)
 
 	switch (track->track_type)
 	{
-	case TRACK_TYPE_SCALAR:
+	case ANIM_TRACK_TYPE_SCALAR:
 		{
 			len = (i32)array_len(track->frames_scalar);
-			if (len == 0) { return; }
+			if (len == 0)
+			{
+				return;
+			}
 			start_time = track->frames_scalar[0].t;
 			end_time = track->frames_scalar[len - 1].t;
 			duration = end_time - start_time;
 		}
 		break;
-	case TRACK_TYPE_V3:
+	case ANIM_TRACK_TYPE_V3:
 		{
 			len = (i32)array_len(track->frames_v3);
-			if (len == 0) { return; }
+			if (len == 0)
+			{
+				return;
+			}
 			start_time = track->frames_v3[0].t;
 			end_time = track->frames_v3[len - 1].t;
 			duration = end_time - start_time;
 		}
 		break;
-	case TRACK_TYPE_V4:
+	case ANIM_TRACK_TYPE_V4:
 		{
 			len = (i32)array_len(track->frames_v4);
-			if (len == 0) { return; }
+			if (len == 0)
+			{
+				return;
+			}
 			start_time = track->frames_v4[0].t;
 			end_time = track->frames_v4[len - 1].t;
 			duration = end_time - start_time;
@@ -278,7 +320,10 @@ track_index_look_up_table(struct arena *arena, struct track *track)
 	u32 old_length = array_len(track->sampled_frames);
 	array_set_len(arena, track->sampled_frames, num_samples);
 	u32 new_length = array_len(track->sampled_frames);
-	for (u32 i = 0; i < (new_length - old_length); ++i) { track->sampled_frames[old_length + i] = 0; }
+	for (u32 i = 0; i < (new_length - old_length); ++i)
+	{
+		track->sampled_frames[old_length + i] = 0;
+	}
 
 	for (u32 i = 0; i < num_samples; ++i)
 	{
@@ -288,34 +333,46 @@ track_index_look_up_table(struct arena *arena, struct track *track)
 		i32 frame_index = 0;
 		for (i32 j = len - 1; j >= 0; --j)
 		{
-			if (track->track_type == TRACK_TYPE_SCALAR)
+			if (track->track_type == ANIM_TRACK_TYPE_SCALAR)
 			{
 				if (time >= track->frames_scalar[j].t)
 				{
 					frame_index = j;
-					if (frame_index >= len - 2) { frame_index = (i32)len - 2; }
+					if (frame_index >= len - 2)
+					{
+						frame_index = (i32)len - 2;
+					}
 					break;
 				}
 			}
-			else if (track->track_type == TRACK_TYPE_V3)
+			else if (track->track_type == ANIM_TRACK_TYPE_V3)
 			{
 				if (time >= track->frames_v3[j].t)
 				{
 					frame_index = j;
-					if (frame_index >= len - 2) { frame_index = (i32)len - 2; }
+					if (frame_index >= len - 2)
+					{
+						frame_index = (i32)len - 2;
+					}
 					break;
 				}
 			}
-			else if (track->track_type == TRACK_TYPE_V4)
+			else if (track->track_type == ANIM_TRACK_TYPE_V4)
 			{
 				if (time >= track->frames_v4[j].t)
 				{
 					frame_index = j;
-					if (frame_index >= len - 2) { frame_index = (i32)len - 2; }
+					if (frame_index >= len - 2)
+					{
+						frame_index = (i32)len - 2;
+					}
 					break;
 				}
 			}
-			else { sm__unreachable(); }
+			else
+			{
+				sm__unreachable();
+			}
 		}
 
 		track->sampled_frames[i] = frame_index;
@@ -323,19 +380,22 @@ track_index_look_up_table(struct arena *arena, struct track *track)
 }
 
 static f32
-sm__track_sample_constant_scalar(struct track *track, f32 t, b8 looping)
+sm__track_sample_constant_scalar(struct track *track, f32 t, b32 looping)
 {
 	// To do a constant (step) sample, find the frame based on the time with the
 	// track_frame_index helper. Make sure the frame is valid, then cast the value
 	// of that frame to the correct data type and return it
 	i32 len = (i32)array_len(track->frames_scalar);
 	i32 frame = track_frame_index(track, t, looping);
-	if (frame < 0 || frame >= len) { return (0.0f); }
+	if (frame < 0 || frame >= len)
+	{
+		return (0.0f);
+	}
 	return (track->frames_scalar[frame].value);
 }
 
 static f32
-sm__track_sample_linear_scalar(struct track *track, f32 t, b8 looping)
+sm__track_sample_linear_scalar(struct track *track, f32 t, b32 looping)
 {
 	i32 len = (i32)array_len(track->frames_scalar);
 	i32 this_frame = track_frame_index(track, t, looping);
@@ -362,11 +422,14 @@ sm__track_sample_linear_scalar(struct track *track, f32 t, b8 looping)
 // sampling did. This function calls the Hermite helper function to do its
 // interpolation.
 static f32
-sm__track_sample_cubic_scalar(struct track *track, f32 time, b8 looping)
+sm__track_sample_cubic_scalar(struct track *track, f32 time, b32 looping)
 {
 	i32 len = (i32)array_len(track->frames_scalar);
 	i32 this_frame = track_frame_index(track, time, looping);
-	if (this_frame < 0 || this_frame >= (len - 1)) { return (0.0f); }
+	if (this_frame < 0 || this_frame >= (len - 1))
+	{
+		return (0.0f);
+	}
 
 	i32 next_frame = this_frame + 1;
 
@@ -408,7 +471,7 @@ sm__track_hermite_scalar(f32 t, f32 p1, f32 s1, f32 _p2, f32 s2)
 }
 
 static void
-sm__track_sample_constant_v3(struct track *track, f32 t, b8 looping, vec3 out)
+sm__track_sample_constant_v3(struct track *track, f32 t, b32 looping, vec3 out)
 {
 	// To do a constant (step) sample, find the frame based on the time with the
 	// track_frame_index helper. Make sure the frame is valid, then cast the value
@@ -427,7 +490,7 @@ sm__track_sample_constant_v3(struct track *track, f32 t, b8 looping, vec3 out)
 }
 
 static void
-sm__track_sample_linear_v3(struct track *track, f32 time, b8 looping, vec3 out)
+sm__track_sample_linear_v3(struct track *track, f32 time, b32 looping, vec3 out)
 {
 	i32 len = (i32)array_len(track->frames_v3);
 	i32 this_frame = track_frame_index(track, time, looping);
@@ -458,7 +521,7 @@ sm__track_sample_linear_v3(struct track *track, f32 time, b8 looping, vec3 out)
 }
 
 static void
-sm__track_sample_cubic_v3(struct track *track, f32 time, b8 looping, vec3 out)
+sm__track_sample_cubic_v3(struct track *track, f32 time, b32 looping, vec3 out)
 {
 	i32 len = (i32)array_len(track->frames_v3);
 	i32 this_frame = track_frame_index(track, time, looping);
@@ -520,7 +583,7 @@ sm__track_hermite_v3(f32 t, vec3 p1, vec3 s1, vec3 _p2, vec3 s2, vec3 out)
 }
 
 static void
-sm__track_sample_constant_v4(struct track *track, f32 t, b8 looping, versor out)
+sm__track_sample_constant_v4(struct track *track, f32 t, b32 looping, versor out)
 {
 	// To do a constant (step) sample, find the frame based on the time with the
 	// track_frame_index helper. Make sure the frame is valid, then cast the value
@@ -575,7 +638,7 @@ sm__track_cast_quat(v4 quat)
 }
 
 static void
-sm__track_sample_linear_v4(struct track *track, f32 time, b8 looping, versor out)
+sm__track_sample_linear_v4(struct track *track, f32 time, b32 looping, versor out)
 {
 	i32 len = (i32)array_len(track->frames_v4);
 	i32 this_frame = track_frame_index(track, time, looping);
@@ -608,7 +671,7 @@ sm__track_sample_linear_v4(struct track *track, f32 time, b8 looping, versor out
 }
 
 static void
-sm__track_sample_cubic_v4(struct track *track, f32 time, b8 looping, versor out)
+sm__track_sample_cubic_v4(struct track *track, f32 time, b32 looping, versor out)
 {
 	i32 len = (i32)array_len(track->frames_v4);
 	i32 this_frame = track_frame_index(track, time, looping);
@@ -648,7 +711,10 @@ sm__track_sample_cubic_v4(struct track *track, f32 time, b8 looping, versor out)
 static void
 sm__track_neighborhood(versor a, versor b)
 {
-	if (glm_quat_dot(a, b) < 0.0f) { glm_vec4_negate(b); }
+	if (glm_quat_dot(a, b) < 0.0f)
+	{
+		glm_vec4_negate(b);
+	}
 }
 
 static void
@@ -684,7 +750,7 @@ sm__track_hermite_v4(f32 t, versor p1, versor s1, versor _p2, versor s2, versor 
 // The transform_track_is_valid helper function should only return true if at
 // least one of the component tracks stored in the transform_track_s struct is
 // valid. For a track to be valid, it needs to have two or more frames.
-b8
+b32
 transform_track_is_valid(struct transform_track *transform_track)
 {
 	sm__assert(transform_track);
@@ -700,7 +766,7 @@ transform_track_get_start_time(const struct transform_track *transform_track)
 	sm__assert(transform_track);
 
 	f32 result = 0.0f;
-	b8 is_set = false;
+	b32 is_set = false;
 
 	if (array_len(transform_track->position.frames_v3) > 1)
 	{
@@ -771,7 +837,7 @@ transform_track_get_end_time(const struct transform_track *transform_track)
 }
 
 trs
-transform_track_sample(struct transform_track *transform_track, trs *transform_ref, f32 time, b8 looping)
+transform_track_sample(struct transform_track *transform_track, trs *transform_ref, f32 time, b32 looping)
 {
 	sm__assert(transform_track);
 
