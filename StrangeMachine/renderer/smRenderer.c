@@ -29,21 +29,27 @@
 struct pools
 {
 	struct handle_pool buffer_pool;
+	u32 buffers_cap;
 	struct renderer_buffer *buffers;
 
 	struct handle_pool texture_pool;
+	u32 textures_cap;
 	struct renderer_texture *textures;
 
 	struct handle_pool sampler_pool;
+	u32 samplers_cap;
 	struct renderer_sampler *samplers;
 
 	struct handle_pool shader_pool;
+	u32 shaders_cap;
 	struct renderer_shader *shaders;
 
 	struct handle_pool pipeline_pool;
+	u32 pipelines_cap;
 	struct renderer_pipeline *pipelines;
 
 	struct handle_pool pass_pool;
+	u32 passes_cap;
 	struct renderer_pass *passes;
 };
 
@@ -62,21 +68,27 @@ sm__renderer_pools_make(struct arena *arena, struct pools *pools)
 
 	handle_pool_make(arena, &pools->buffer_pool, RENDERER_INITIAL_CAPACITY_BUFFERS);
 	pools->buffers = arena_reserve(arena, sizeof(struct renderer_buffer) * RENDERER_INITIAL_CAPACITY_BUFFERS);
+	pools->buffers_cap = RENDERER_INITIAL_CAPACITY_BUFFERS;
 
 	handle_pool_make(arena, &pools->texture_pool, RENDERER_INITIAL_CAPACITY_TEXTURES);
 	pools->textures = arena_reserve(arena, sizeof(struct renderer_texture) * RENDERER_INITIAL_CAPACITY_TEXTURES);
+	pools->textures_cap = RENDERER_INITIAL_CAPACITY_TEXTURES;
 
 	handle_pool_make(arena, &pools->sampler_pool, RENDERER_INITIAL_CAPACITY_SAMPLERS);
 	pools->samplers = arena_reserve(arena, sizeof(struct renderer_sampler) * RENDERER_INITIAL_CAPACITY_SAMPLERS);
+	pools->samplers_cap = RENDERER_INITIAL_CAPACITY_SAMPLERS;
 
 	handle_pool_make(arena, &pools->shader_pool, RENDERER_INITIAL_CAPACITY_SHADERS);
 	pools->shaders = arena_reserve(arena, sizeof(struct renderer_shader) * RENDERER_INITIAL_CAPACITY_SHADERS);
+	pools->shaders_cap = RENDERER_INITIAL_CAPACITY_SHADERS;
 
 	handle_pool_make(arena, &pools->pipeline_pool, RENDERER_INITIAL_CAPACITY_PIPELINES);
 	pools->pipelines = arena_reserve(arena, sizeof(struct renderer_pipeline) * RENDERER_INITIAL_CAPACITY_PIPELINES);
+	pools->pipelines_cap = RENDERER_INITIAL_CAPACITY_PIPELINES;
 
 	handle_pool_make(arena, &pools->pass_pool, RENDERER_INITIAL_CAPACITY_PASSES);
 	pools->passes = arena_reserve(arena, sizeof(struct renderer_pass) * RENDERER_INITIAL_CAPACITY_PASSES);
+	pools->passes_cap = RENDERER_INITIAL_CAPACITY_PASSES;
 
 #undef RENDERER_INITIAL_CAPACITY_BUFFERS
 #undef RENDERER_INITIAL_CAPACITY_TEXTURES
@@ -685,6 +697,26 @@ static str8 sm__cable_polygon_mode_str8[POLYGON_MODE_MAX] = {
     [POLYGON_MODE_FILL] = str8_from("POLYGON_MODE_FILL"),
 };
 
+static str8 sm__cable_buffer_type_str8[BUFFER_TYPE_MAX] = {
+    [BUFFER_TYPE_DEFAULT] = str8_from("BUFFER_TYPE_DEFAULT"),
+    [BUFFER_TYPE_VERTEXBUFFER] = str8_from("BUFFER_TYPE_VERTEXBUFFER"),
+    [BUFFER_TYPE_INDEXBUFFER] = str8_from("BUFFER_TYPE_INDEXBUFFER"),
+};
+
+static str8 sm__ctable_texture_pixel_format_str8[TEXTURE_PIXELFORMAT_MAX] = {
+    [TEXTURE_PIXELFORMAT_DEFAULT] = str8_from("TEXTURE_PIXELFORMAT_DEFAULT"),
+    [TEXTURE_PIXELFORMAT_UNCOMPRESSED_GRAYSCALE] = str8_from("TEXTURE_PIXELFORMAT_UNCOMPRESSED_GRAYSCALE"),
+    [TEXTURE_PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA] = str8_from("TEXTURE_PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA"),
+    [TEXTURE_PIXELFORMAT_UNCOMPRESSED_ALPHA] = str8_from("TEXTURE_PIXELFORMAT_UNCOMPRESSED_ALPHA"),
+    [TEXTURE_PIXELFORMAT_UNCOMPRESSED_R5G6B5] = str8_from("TEXTURE_PIXELFORMAT_UNCOMPRESSED_R5G6B5"),
+    [TEXTURE_PIXELFORMAT_UNCOMPRESSED_R8G8B8] = str8_from("TEXTURE_PIXELFORMAT_UNCOMPRESSED_R8G8B8"),
+    [TEXTURE_PIXELFORMAT_UNCOMPRESSED_R5G5B5A1] = str8_from("TEXTURE_PIXELFORMAT_UNCOMPRESSED_R5G5B5A1"),
+    [TEXTURE_PIXELFORMAT_UNCOMPRESSED_R4G4B4A4] = str8_from("TEXTURE_PIXELFORMAT_UNCOMPRESSED_R4G4B4A4"),
+    [TEXTURE_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8] = str8_from("TEXTURE_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8"),
+    [TEXTURE_PIXELFORMAT_DEPTH] = str8_from("TEXTURE_PIXELFORMAT_DEPTH"),
+    [TEXTURE_PIXELFORMAT_DEPTH_STENCIL] = str8_from("TEXTURE_PIXELFORMAT_DEPTH_STENCIL"),
+};
+
 static void
 gl__renderer_get_texture_formats(
     enum texture_pixel_format pixel_format, u32 *gl_internal_format, u32 *gl_format, u32 *gl_type)
@@ -723,8 +755,8 @@ gl__renderer_get_texture_formats(
 		}
 		break;
 	case TEXTURE_PIXELFORMAT_UNCOMPRESSED_R8G8B8:
-		*gl_internal_format = GL_RGB;
 		{
+			*gl_internal_format = GL_RGB;
 			*gl_format = GL_RGB;
 			*gl_type = GL_UNSIGNED_BYTE;
 		}
@@ -1216,6 +1248,11 @@ sm__renderer_buffer_alloc(void)
 	buffer_handle result;
 
 	handle_t handle = handle_new(&RC.arena, &RC.pools.buffer_pool);
+	if (RC.pools.buffer_pool.cap != RC.pools.buffers_cap)
+	{
+		RC.pools.buffers = arena_resize(
+		    &RC.arena, RC.pools.buffers, RC.pools.buffer_pool.cap * sizeof(struct renderer_buffer));
+	}
 	result.id = handle;
 
 	return result;
@@ -1300,6 +1337,11 @@ sm__renderer_texture_alloc(void)
 	texture_handle result;
 
 	handle_t handle = handle_new(&RC.arena, &RC.pools.texture_pool);
+	if (RC.pools.texture_pool.cap != RC.pools.textures_cap)
+	{
+		RC.pools.textures = arena_resize(
+		    &RC.arena, RC.pools.textures, RC.pools.texture_pool.cap * sizeof(struct renderer_texture));
+	}
 	result.id = handle;
 
 	return result;
@@ -1397,9 +1439,16 @@ renderer_texture_make(const struct renderer_texture_desc *desc)
 			if (desc_def.handle.id != INVALID_HANDLE)
 			{
 				texture_at->resource_handle.id = desc_def.handle.id;
+
+				log_trace(str8_from("[{s}] creating texture from handle {u3d}"), desc_def.label,
+				    desc_def.handle.id);
 			}
 			else
 			{
+				log_trace(str8_from("[{s}] creating {s} texture ({u3d}x{u3d})"), desc_def.label,
+				    sm__ctable_texture_pixel_format_str8[desc_def.pixel_format], desc_def.width,
+				    desc_def.height);
+
 				texture_at->resource_handle.id = desc_def.handle.id;
 				texture_at->width = desc_def.width;
 				texture_at->height = desc_def.height;
@@ -1421,6 +1470,11 @@ sm__renderer_sampler_alloc(void)
 	sampler_handle result;
 
 	handle_t handle = handle_new(&RC.arena, &RC.pools.sampler_pool);
+	if (RC.pools.sampler_pool.cap != RC.pools.samplers_cap)
+	{
+		RC.pools.samplers = arena_resize(
+		    &RC.arena, RC.pools.samplers, RC.pools.sampler_pool.cap * sizeof(struct renderer_sampler));
+	}
 	result.id = handle;
 
 	return result;
@@ -1529,6 +1583,11 @@ sm__renderer_pass_alloc(void)
 	pass_handle result;
 
 	handle_t handle = handle_new(&RC.arena, &RC.pools.pass_pool);
+	if (RC.pools.pass_pool.cap != RC.pools.passes_cap)
+	{
+		RC.pools.passes =
+		    arena_resize(&RC.arena, RC.pools.passes, RC.pools.pass_pool.cap * sizeof(struct renderer_pass));
+	}
 	result.id = handle;
 
 	return result;
@@ -1803,6 +1862,11 @@ sm__renderer_shader_alloc(void)
 	shader_handle result;
 
 	handle_t handle = handle_new(&RC.arena, &RC.pools.shader_pool);
+	if (RC.pools.shader_pool.cap != RC.pools.shaders_cap)
+	{
+		RC.pools.shaders = arena_resize(
+		    &RC.arena, RC.pools.shaders, RC.pools.shader_pool.cap * sizeof(struct renderer_shader));
+	}
 	result.id = handle;
 
 	return result;
@@ -2007,6 +2071,11 @@ sm__renderer_pipeline_alloc(void)
 	pipeline_handle result;
 
 	handle_t handle = handle_new(&RC.arena, &RC.pools.pipeline_pool);
+	if (RC.pools.pipeline_pool.cap != RC.pools.pipelines_cap)
+	{
+		RC.pools.pipelines = arena_resize(
+		    &RC.arena, RC.pools.pipelines, RC.pools.pipeline_pool.cap * sizeof(struct renderer_pipeline));
+	}
 	result.id = handle;
 
 	return result;
@@ -2693,16 +2762,19 @@ renderer_bindings_apply(struct renderer_bindings *bindings)
 		{
 			if (selected->buffer.id == INVALID_HANDLE)
 			{
-				glCall(glDisableVertexAttribArray(slot));
+				if (current->buffer.id != INVALID_HANDLE)
+				{
+					glCall(glDisableVertexAttribArray(slot));
+				}
 			}
 			else
 			{
+				struct renderer_buffer *buf = renderer_buffer_at(selected->buffer);
+				sm__renderer_buffer_bind(GL_ARRAY_BUFFER, buf->gl_handle);
 				if (current->buffer.id == INVALID_HANDLE)
 				{
 					glCall(glEnableVertexAttribArray(slot));
 				}
-				struct renderer_buffer *buf = renderer_buffer_at(selected->buffer);
-				sm__renderer_buffer_bind(GL_ARRAY_BUFFER, buf->gl_handle);
 				glCall(glVertexAttribPointer(slot, (GLint)gl_attr->size, (GLenum)gl_attr->type,
 				    (GLboolean)gl_attr->normalized, gl_attr->stride,
 				    (const GLvoid *)(GLintptr)gl_attr->offset));
