@@ -45,8 +45,14 @@ str8_buffer_flush(void)
 static void
 sm__buffer_push(str8 str)
 {
-	if (str_buffer.len + str.size > str_buffer.cap) { str8_buffer_flush(); }
-	if (str.size > str_buffer.cap) { write(1, str.idata, str.size); }
+	if (str_buffer.len + str.size > str_buffer.cap)
+	{
+		str8_buffer_flush();
+	}
+	if (str.size > str_buffer.cap)
+	{
+		write(1, str.idata, str.size);
+	}
 	else
 	{
 		sync_mutex_lock(&str8_mutex);
@@ -62,12 +68,16 @@ i64tostr(i64 value, i32 base)
 	str8 result = {0};
 
 	// check that the base if valid
-	if (base < 2 || base > 36) { return (result); }
+	if (base < 2 || base > 36)
+	{
+		return (result);
+	}
 
 	i8 *ptr = str__strbuf, *ptr1 = str__strbuf, tmp_char;
 	i64 tmp_value;
 
-	do {
+	do
+	{
 		tmp_value = value;
 		value /= base;
 		*ptr++ = str__conststr.idata[35 + (tmp_value - value * base)];
@@ -99,12 +109,16 @@ i32tostr(i32 value, i32 base)
 	str8 result = {0};
 
 	// check that the base if valid
-	if (base < 2 || base > 36) { return (result); }
+	if (base < 2 || base > 36)
+	{
+		return (result);
+	}
 
 	char *ptr = str__strbuf, *ptr1 = str__strbuf, tmp_char;
 	i32 tmp_value;
 
-	do {
+	do
+	{
 		tmp_value = value;
 		value /= base;
 		*ptr++ = str__conststr.idata[35 + (tmp_value - value * base)];
@@ -136,12 +150,16 @@ u32tostr(u32 value, i32 base)
 	str8 result = {0};
 
 	// check that the base if valid
-	if (base < 2 || base > 36) { return (result); }
+	if (base < 2 || base > 36)
+	{
+		return (result);
+	}
 
 	char *ptr = str__strbuf, *ptr1 = str__strbuf, tmp_char;
 	uint32_t tmp_value;
 
-	do {
+	do
+	{
 		tmp_value = value;
 		value /= (u32)base;
 		*ptr++ = str__conststr.idata[35 + (tmp_value - value * (u32)base)];
@@ -166,12 +184,16 @@ u64tostr(u64 value, i32 base)
 {
 	str8 result = {0};
 	// check that the base if valid
-	if (base < 2 || base > 36) { return (result); }
+	if (base < 2 || base > 36)
+	{
+		return (result);
+	}
 
 	i8 *ptr = str__strbuf, *ptr1 = str__strbuf, tmp_char;
 	u64 tmp_value;
 
-	do {
+	do
+	{
 		tmp_value = value;
 		value /= (u32)base;
 		*ptr++ = str__conststr.idata[35 + (tmp_value - value * (u32)base)];
@@ -199,7 +221,10 @@ f64isnan(f64 value)
 		f64 d;
 	} pun = {.d = value};
 
-	if (((pun.x >> 52) & 0x07FFULL) == 0x07FFULL) { return ((pun.x << 12) & 0xFFFFFFFFFFFFFFFFULL); }
+	if (((pun.x >> 52) & 0x07FFULL) == 0x07FFULL)
+	{
+		return ((pun.x << 12) & 0xFFFFFFFFFFFFFFFFULL);
+	}
 
 	return (false);
 }
@@ -213,7 +238,10 @@ f64isinf(f64 value)
 		f64 d;
 	} pun = {.d = value};
 
-	if (((pun.x >> 52) & 0x07FFULL) == 0x07FFULL) { return ((pun.x << 12) & 0xFFFFFFFFFFFFFFFFULL) == 0; }
+	if (((pun.x >> 52) & 0x07FFULL) == 0x07FFULL)
+	{
+		return ((pun.x << 12) & 0xFFFFFFFFFFFFFFFFULL) == 0;
+	}
 
 	return (false);
 }
@@ -267,9 +295,15 @@ f64tostr(f64 value, u32 precision)
 		intpart[len++] = '0' + (i8)fmod(fp_int, 10);
 		fp_int = floor(fp_int / 10);
 	}
-	if (value < 0) { intpart[len++] = '-'; }
+	if (value < 0)
+	{
+		intpart[len++] = '-';
+	}
 
-	for (u32 i = 0; i < len; i++) { conversion[i] = intpart[len - i - 1]; } // Reverse the integer part, if any
+	for (u32 i = 0; i < len; i++)
+	{
+		conversion[i] = intpart[len - i - 1];
+	} // Reverse the integer part, if any
 
 	conversion[len++] = '.'; // Decimal point
 
@@ -317,7 +351,10 @@ str_buf_end(struct arena *arena, struct str8_buf str_buf)
 	str8 result;
 
 	result.data = arena_resize(arena, str_buf.data, str_buf.len + 1);
-	if (str_buf.data != result.data) { memcpy(result.data, str_buf.data, str_buf.len); }
+	if (str_buf.data != result.data)
+	{
+		memcpy(result.data, str_buf.data, str_buf.len);
+	}
 
 	result.data[str_buf.len] = 0;
 	result.size = str_buf.len;
@@ -405,7 +442,10 @@ str8_release(struct arena *arena, str8 *str)
 b8
 str8_eq(str8 str1, str8 str2)
 {
-	if (str1.size == str2.size) { return (memcmp(str1.data, str2.data, str1.size) == 0); }
+	if (str1.size == str2.size)
+	{
+		return (memcmp(str1.data, str2.data, str1.size) == 0);
+	}
 
 	return (false);
 }
@@ -446,7 +486,10 @@ str8_hash(str8 str)
 	u32 size = str.size;
 	const u8 *p = str.data;
 
-	while (size--) { hash = ((hash << 5) + hash) + *p++; /* hash * 33 + c */ }
+	while (size--)
+	{
+		hash = ((hash << 5) + hash) + *p++; /* hash * 33 + c */
+	}
 
 	return (hash);
 }
@@ -458,7 +501,10 @@ strc_hash(i8 *str)
 	u8 c;
 	const u8 *p = (u8 *)str;
 
-	while ((c = *p++) != '\0') { hash = ((hash << 5) + hash) + c; /* hash * 33 + c */ }
+	while ((c = *p++) != '\0')
+	{
+		hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+	}
 
 	return (hash);
 }
@@ -481,7 +527,7 @@ static union
     {.c = "u8"}, // unsigned 8  {u8(b|o|d|x)} -|
     {.c = "u1"}, // unsigned 16 {u1(b|o|d|x)} -|
     {.c = "u3"}, // unsigned 32 {u3(b|o|d|x)} -|
-    {.c = "u6"}, // unsigned 63 {u6(b|o|d|x)} -|-- where (b|o|d|x) means binary, octal, decimal and hexadecimal
+    {.c = "u6"}, // unsigned 64 {u6(b|o|d|x)} -|-- where (b|o|d|x) means binary, octal, decimal and hexadecimal
 
     {.c = "v2"}, // vector 2 {v2}
     {.c = "v3"}, // vector 3 {v3}
@@ -514,7 +560,10 @@ sm__str_format(struct arena *arena, str8 format, va_list args)
 				{
 					i += 2;
 					str8 value = va_arg(args, str8);
-					if (value.size == 0) { value = str8_from("NULL"); }
+					if (value.size == 0)
+					{
+						value = str8_from("NULL");
+					}
 					str_buf_append(arena, &result_buf, value);
 				}
 				else if (format_id == format_table[1].c[0] ||
@@ -626,19 +675,19 @@ sm__str_format(struct arena *arena, str8 format, va_list args)
 
 						// f32 val = va_arg(args, f32);
 
-						if (f < 6)
+						if (f < 7)
 						{
 							i32 value = va_arg(args, i32);
 							str8 s = i32tostr(value, base);
 							str_buf_append(arena, &result_buf, s);
 						}
-						else if (f == 6)
+						else if (f == 7)
 						{
 							i64 value = va_arg(args, i64);
 							str8 s = i64tostr(value, base);
 							str_buf_append(arena, &result_buf, s);
 						}
-						else if (f < 10)
+						else if (f < 11)
 						{
 							u32 value = va_arg(args, u32);
 							str8 s = u32tostr(value, base);

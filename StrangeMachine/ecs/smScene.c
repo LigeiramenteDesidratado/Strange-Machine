@@ -52,8 +52,6 @@ sm__scene_indirect_access_new_handle(struct arena *arena, struct scene *scene)
 		scene->nodes = arena_resize(arena, scene->nodes, sizeof(struct node) * scene->nodes_handle_pool.cap);
 		scene->nodes_cap = scene->nodes_handle_pool.cap;
 	}
-	log_trace(
-	    str8_from("nodes_cap: {u3d}, handle_pool.cap: {u3d}"), scene->nodes_cap, scene->nodes_handle_pool.cap);
 
 	return (result);
 }
@@ -66,6 +64,13 @@ scene_unmake_refs(struct scene *scene)
 		component_pool_unmake_refs(&scene->component_handle_pool[i]);
 	}
 }
+
+struct child_parent_hierarchy
+{
+	component_t archetype;
+	struct sm__resource_scene_node *ptr, *parent_ptr;
+	entity_t ett, parent_ett;
+};
 
 void
 scene_load(struct arena *arena, struct scene *scene, str8 name)
@@ -80,13 +85,6 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 
 	const scene_resource scene_handle = (scene_resource){res->slot.id};
 	struct sm__resource_scene *scn_resource = resource_scene_at(scene_handle);
-
-	struct child_parent_hierarchy
-	{
-		component_t archetype;
-		struct sm__resource_scene_node *ptr, *parent_ptr;
-		entity_t ett, parent_ett;
-	};
 
 	u32 node_count = array_len(scn_resource->nodes);
 	struct child_parent_hierarchy *nodes_hierarchy;
@@ -346,7 +344,7 @@ scene_load(struct arena *arena, struct scene *scene, str8 name)
 		if ((self->archetype & STATIC_BODY))
 		{
 			static_body_component *static_body = scene_component_get_data(scene, self->ett, STATIC_BODY);
-			static_body->enabled = true;
+			static_body->enabled = 1;
 		}
 
 		if ((self->archetype & (ARMATURE | CLIP | POSE | CROSS_FADE_CONTROLLER)) !=
@@ -470,10 +468,10 @@ scene_entity_remove(struct scene *scene, entity_t entity)
 	handle_remove(&scene->nodes_handle_pool, entity.handle);
 }
 
-b8
+b32
 scene_entity_is_valid(struct scene *scene, entity_t entity)
 {
-	b8 result;
+	b32 result;
 
 	result = handle_valid(&scene->nodes_handle_pool, entity.handle);
 	if (!result)
@@ -494,10 +492,10 @@ scene_entity_is_valid(struct scene *scene, entity_t entity)
 	return (result);
 }
 
-b8
+b32
 scene_entity_has_components(struct scene *scene, entity_t entity, component_t components)
 {
-	b8 result;
+	b32 result;
 
 	sm__assert(handle_valid(&scene->nodes_handle_pool, entity.handle));
 
@@ -613,7 +611,7 @@ scene_component_get_data(struct scene *scene, entity_t entity, component_t compo
 }
 
 void
-scene_entity_set_dirty(struct scene *scene, entity_t entity, b8 dirty)
+scene_entity_set_dirty(struct scene *scene, entity_t entity, b32 dirty)
 {
 	u32 entity_index = handle_index(entity.handle);
 	struct node *entity_node = &scene->nodes[entity_index];
@@ -628,7 +626,7 @@ scene_entity_set_dirty(struct scene *scene, entity_t entity, b8 dirty)
 	}
 }
 
-b8
+b32
 scene_entity_is_dirty(struct scene *scene, entity_t entity)
 {
 	u32 entity_index = handle_index(entity.handle);
@@ -670,7 +668,7 @@ scene_entity_update_hierarchy(struct scene *scene, entity_t self)
 	}
 }
 
-b8
+b32
 scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entity)
 {
 	u32 self_index = handle_index(self.handle);
@@ -678,11 +676,11 @@ scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entit
 
 	if (self_node->parent.handle != INVALID_HANDLE)
 	{
-		return (false);
+		return (0);
 	}
 	if (self_node->parent.handle == entity.handle)
 	{
-		return (true);
+		return (1);
 	}
 
 	u32 entity_index = handle_index(entity.handle);
@@ -692,11 +690,11 @@ scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entit
 	{
 		if (scene_entity_is_descendant_of(scene, self, entity_node->children[i]))
 		{
-			return (true);
+			return (1);
 		}
 	}
 
-	return (false);
+	return (0);
 }
 
 void
@@ -767,7 +765,7 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 	// Push self as child of the new parent
 	if (new_parent.handle)
 	{
-		b8 is_child = false;
+		b32 is_child = 0;
 
 		u32 new_parent_index = handle_index(new_parent.handle);
 		struct node *new_parent_node = &scene->nodes[new_parent_index];
@@ -776,7 +774,7 @@ scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent)
 		{
 			if (new_parent_node->children[i].handle == self_node->self.handle)
 			{
-				is_child = true;
+				is_child = 1;
 				break;
 			}
 		}
@@ -975,7 +973,7 @@ scene_iter_begin(struct scene *scene, component_t constraint)
 	result.index = 0;
 	result.comp_pool_index = 0;
 	result.comp_pool_ref = 0;
-	result.first_iter = true;
+	result.first_iter = 1;
 	result.scene_ref = scene;
 
 	for (u32 i = result.comp_pool_index; i < array_len(scene->component_handle_pool); ++i)
@@ -992,12 +990,12 @@ scene_iter_begin(struct scene *scene, component_t constraint)
 	return (result);
 }
 
-b8
+b32
 scene_iter_next(struct scene *scene, struct scene_iter *iter)
 {
 	if (!iter->comp_pool_ref)
 	{
-		return (false);
+		return (0);
 	}
 
 	if (!iter->first_iter)
@@ -1007,7 +1005,7 @@ scene_iter_next(struct scene *scene, struct scene_iter *iter)
 	else
 	{
 		sm__assert(iter->index == 0);
-		iter->first_iter = false;
+		iter->first_iter = 0;
 	}
 
 	while (iter->index < iter->comp_pool_ref->handle_pool.len)
@@ -1015,7 +1013,7 @@ scene_iter_next(struct scene *scene, struct scene_iter *iter)
 		handle_t handle = handle_at(&iter->comp_pool_ref->handle_pool, iter->index);
 		if (handle_valid(&iter->comp_pool_ref->handle_pool, handle))
 		{
-			return (true);
+			return (1);
 		}
 		else
 		{
@@ -1037,12 +1035,12 @@ scene_iter_next(struct scene *scene, struct scene_iter *iter)
 				iter->comp_pool_ref = cpool;
 				iter->comp_pool_index = i;
 
-				return (true);
+				return (1);
 			}
 		}
 	}
 
-	return (false);
+	return (0);
 }
 
 void *
@@ -1170,7 +1168,7 @@ scene_print_archeype(struct arena *arena, struct scene *scene, entity_t entity)
 	sm__assert(index < scene->nodes_handle_pool.cap);
 
 	component_t archetype = scene->nodes[index].archetype;
-	b8 first = true;
+	b32 first = 1;
 
 	for (u64 i = 1; (i - 1) < UINT64_MAX; i <<= 1)
 	{
@@ -1181,7 +1179,7 @@ scene_print_archeype(struct arena *arena, struct scene *scene, entity_t entity)
 			if (first)
 			{
 				str8_printf(arena, str8_from("({s}"), ctable_components[component_index].name);
-				first = false;
+				first = 0;
 			}
 			else
 			{

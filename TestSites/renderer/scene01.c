@@ -296,7 +296,7 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 	struct renderer_pipeline_desc pip_desc = {.label = str8_from("default pipeline"),
 	    .shader = scene01->first.program,
 	    .depth = {.enable = STATE_TRUE},
-	    .rasterizer = {.cull_enable = STATE_FALSE},
+	    .rasterizer = {.cull_enable = STATE_TRUE},
 	    .layout = {.attrs = {
 			   {.name = str8_from("a_position"), .format = VERTEX_FORMAT_FLOAT3, .buffer_index = 0},
 			   {.name = str8_from("a_uv"), .format = VERTEX_FORMAT_FLOAT2, .buffer_index = 1},
@@ -361,8 +361,8 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 	// DEFAULT BEGIN
 
 	text_resource framebuffer_vert = resource_text_get_by_label(str8_from("shaders/framebuffer.vertex"));
-	// text_resource framebuffer_frag = resource_text_get_by_label(str8_from("shaders/framebuffer.fragment"));
 	text_resource framebuffer_frag = resource_text_get_by_label(str8_from("shaders/dither.fragment"));
+	// text_resource framebuffer_frag = resource_text_get_by_label(str8_from("shaders/framebuffer.fragment"));
 
 	struct renderer_shader_desc default_desc = {
 	    .vs = {.handle = framebuffer_vert},
@@ -472,7 +472,10 @@ scene01_on_attach(struct arena *arena, sm__maybe_unused struct scene *scene, str
 	// scene_load(arena, scene, str8_from("praca-scene"));
 	// scene_load(arena, scene, str8_from("simple-cube-scene"));
 	// scene_load(arena, scene, str8_from("cube-scene"));
-	// scene_load(arena, scene, str8_from("mainscene"));
+	scene_load(arena, scene, str8_from("mainscene"));
+	// scene_load(arena, scene, str8_from("n"));
+	// scene_load(arena, scene, str8_from("dense"));
+	// scene_load(arena, scene, str8_from("cubes"));
 
 	// scene_load(arena, scene, str8_from("Scene"));
 	// scene_load(arena, scene, str8_from("hierarchy"));
@@ -648,10 +651,11 @@ scene01_on_draw(struct arena *arena, struct scene *scene, struct ctx *ctx, void 
 
 		    .textures =
 			{
-				  {.name = str8_from("u_tex0"),
+				  {
+				.name = str8_from("u_tex0"),
 				.texture = material->texture_handle,
-				.sampler = scene01->first.sampler},
-				  },
+				.sampler = scene01->first.sampler,
+			    }, },
 		    .uniforms =
 			{
 				  {.name = str8_from("u_pv"), .type = SHADER_TYPE_M4, .data = &view_projection_matrix},
@@ -666,6 +670,8 @@ scene01_on_draw(struct arena *arena, struct scene *scene, struct ctx *ctx, void 
 		renderer_bindings_apply(&bind);
 		renderer_draw(array_len(mesh_resource->indices));
 	}
+
+#	if 0
 
 	renderer_pipiline_apply(scene01->first.skinned_pipeline);
 	iter = scene_iter_begin(scene, TRANSFORM | MESH | MATERIAL | ARMATURE);
@@ -719,6 +725,7 @@ scene01_on_draw(struct arena *arena, struct scene *scene, struct ctx *ctx, void 
 		renderer_bindings_apply(&bind);
 		renderer_draw(array_len(mesh_resource->indices));
 	}
+#	endif
 
 	renderer_pass_end();
 

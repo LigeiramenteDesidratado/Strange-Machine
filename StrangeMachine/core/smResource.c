@@ -1610,7 +1610,7 @@ fs_scene_write(struct fs_file *file, struct sm__resource_scene *scene)
 		fs_write_str8(file, node->name);
 
 		fs_write_i32(file, node->parent_index);
-		fs_write_i32a(file, node->children);
+		// fs_write_i32a(file, node->children);
 		fs_write_v3(file, node->position);
 		fs_write_v3(file, node->scale);
 		fs_write_v4(file, node->rotation);
@@ -1660,7 +1660,7 @@ fs_scene_read(struct fs_file *file, struct sm__resource_scene *scene)
 		node->name = fs_read_str8(file);
 
 		node->parent_index = fs_read_i32(file);
-		node->children = fs_read_i32a(file);
+		// node->children = fs_read_i32a(file);
 		node->position = fs_read_v3(file);
 		node->scale = fs_read_v3(file);
 		node->rotation = fs_read_v4(file);
@@ -1729,6 +1729,7 @@ sm__resource_scene_trace(struct sm__resource_scene *scene)
 		log_trace(str8_from("        - mesh    : {s}"), scene->nodes[i].mesh);
 		log_trace(str8_from("        - material: {s}"), scene->nodes[i].material);
 		log_trace(str8_from("        - armature: {s}"), scene->nodes[i].armature);
+		log_trace(str8_from("        - parent  : {i3d}"), scene->nodes[i].parent_index);
 
 		b32 first = 1;
 		char *b = buf;

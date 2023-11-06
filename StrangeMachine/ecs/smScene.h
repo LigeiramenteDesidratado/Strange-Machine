@@ -86,15 +86,15 @@ void scene_unmake_refs(struct scene *scene);
 
 entity_t scene_entity_new(struct arena *arena, struct scene *scene, component_t archetype);
 void scene_entity_remove(struct scene *scene, entity_t entity);
-b8 scene_entity_is_valid(struct scene *scene, entity_t entity);
-b8 scene_entity_has_components(struct scene *scene, entity_t entity, component_t components);
+b32 scene_entity_is_valid(struct scene *scene, entity_t entity);
+b32 scene_entity_has_components(struct scene *scene, entity_t entity, component_t components);
 void scene_entity_add_component(struct arena *arena, struct scene *scene, entity_t entity, component_t components);
 void *scene_component_get_data(struct scene *scene, entity_t entity, component_t component);
 
-void scene_entity_set_dirty(struct scene *scene, entity_t entity, b8 dirty);
-b8 scene_entity_is_dirty(struct scene *scene, entity_t entity);
+void scene_entity_set_dirty(struct scene *scene, entity_t entity, b32 dirty);
+b32 scene_entity_is_dirty(struct scene *scene, entity_t entity);
 void scene_entity_update_hierarchy(struct scene *scene, entity_t self);
-b8 scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entity);
+b32 scene_entity_is_descendant_of(struct scene *scene, entity_t self, entity_t entity);
 void scene_entity_set_parent(struct scene *scene, entity_t self, entity_t new_parent);
 void scene_entity_add_child(struct scene *scene, entity_t self, entity_t child);
 void scene_entity_set_position_local(struct scene *scene, entity_t self, v3 position);
@@ -111,7 +111,7 @@ void scene_system_run(struct arena *arena, struct scene *scene, struct ctx *ctx)
 struct scene_iter
 {
 	REF(const struct scene) scene_ref;
-	b8 first_iter;
+	b32 first_iter;
 	component_t constraint;
 	u32 comp_pool_index;
 
@@ -120,7 +120,7 @@ struct scene_iter
 };
 
 struct scene_iter scene_iter_begin(struct scene *scene, component_t constraint);
-b8 scene_iter_next(struct scene *scene, struct scene_iter *iter);
+b32 scene_iter_next(struct scene *scene, struct scene_iter *iter);
 void *scene_iter_get_component(struct scene_iter *iter, component_t component);
 entity_t scene_iter_get_entity(struct scene_iter *iter);
 

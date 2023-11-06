@@ -259,7 +259,7 @@ struct sm__resource_scene_node
 	str8 name;
 
 	i32 parent_index;
-	array(i32) children;
+	// array(i32) children;
 
 	v3 position;
 	v3 scale;

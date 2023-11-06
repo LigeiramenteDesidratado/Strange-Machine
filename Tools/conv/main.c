@@ -1244,7 +1244,7 @@ main(i32 argc, i8 *argv[])
 
 	sm___resource_mock_teardown();
 
-#if 1
+#if 0
 	//
 	sm___resource_mock_init(argv, path);
 	Garena = resource_get_arena();
